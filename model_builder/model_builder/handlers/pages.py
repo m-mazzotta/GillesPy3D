@@ -271,6 +271,28 @@ class MultiplePlotsHandler(PageHandler):
         self.render("multiple-plots-page.html", server_path=self.get_server_path())
 
 
+class SpatialMockupHandler(PageHandler):
+    '''
+    ################################################################################################
+    GillesPy3D spatial model mockup (static UI prototype)
+    ################################################################################################
+    '''
+    @web.authenticated
+    async def get(self):
+        '''
+        Render the spatial domain mockup page.
+
+        Attributes
+        ----------
+        '''
+        self.render("model_builder-spatial-mockup.html", server_path=self.get_server_path())
+
+class SpatialMockup2Handler(PageHandler):
+    @web.authenticated
+    async def get(self):
+        self.render("model_builder_spatial_mockup-2.html", server_path=self.get_server_path())
+
+
 class UserSettingsHandler(PageHandler):
     '''
     ################################################################################################

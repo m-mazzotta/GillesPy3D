@@ -252,6 +252,111 @@ class RunModelAPIHandler(APIHandler):
         self.finish()
 
 
+class RunSpatialMockupAPIHandler(APIHandler):
+    '''
+    ################################################################################################
+    Handler for running the spatial mockup simulation.
+    ################################################################################################
+    '''
+    @staticmethod
+    def _parse_runner_stdout(stdout):
+        '''
+        Extract a JSON object from runner stdout. SpatialPy/Plotly may print
+        non-JSON text before the final payload.
+        '''
+        text = (stdout or "").strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+        # Prefer the last complete JSON object in the stream.
+        decoder = json.JSONDecoder()
+        last_obj = None
+        idx = 0
+        while idx < len(text):
+            start = text.find('{', idx)
+            if start < 0:
+                break
+            try:
+                obj, end = decoder.raw_decode(text, start)
+                last_obj = obj
+                idx = end
+            except json.JSONDecodeError:
+                idx = start + 1
+        return last_obj
+
+    @web.authenticated
+    async def post(self):
+        '''
+        Run the spatial mockup simulation for the selected density.
+
+        Density selects the notebook-export script (see run_spatial_mockup.py).
+        '''
+        self.set_header('Content-Type', 'application/json')
+        try:
+            data = json.loads(self.request.body.decode() or "{}")
+            density = data.get("density", "low")
+            reaction_count = data.get("reaction_count")
+            if reaction_count is None:
+                # Backward compatible with older dual_reactions boolean payload.
+                reaction_count = 2 if data.get("dual_reactions") else 1
+            try:
+                reaction_count = int(reaction_count)
+            except (TypeError, ValueError):
+                reaction_count = 1
+            if reaction_count not in (1, 2, 3):
+                reaction_count = 1
+            species = data.get("species", "A")
+            if species not in ("A", "B", "C"):
+                species = "A"
+            script_path = os.path.join(
+                os.path.dirname(__file__), "util", "scripts", "run_spatial_mockup.py"
+            )
+            exec_cmd = [
+                'python3',
+                script_path,
+                '--density',
+                f'{density}',
+                '--species',
+                f'{species}',
+                '--reaction-count',
+                f'{reaction_count}'
+            ]
+            log.debug(f"Script commands for spatial mockup run: {exec_cmd}")
+            result = subprocess.run(exec_cmd, capture_output=True, text=True, check=False)
+            stdout = (result.stdout or "").strip()
+            stderr = (result.stderr or "").strip()
+            if result.returncode != 0:
+                resp = {
+                    "status": "error",
+                    "message": "Spatial mockup simulation failed.",
+                    "density": density,
+                    "details": stderr or stdout
+                }
+                self.write(resp)
+            else:
+                resp = self._parse_runner_stdout(stdout)
+                if resp is None:
+                    resp = {
+                        "status": "error",
+                        "message": "Could not parse spatial mockup simulation response.",
+                        "density": density,
+                        "details": stdout or stderr or "Empty runner output."
+                    }
+                self.write(resp)
+        except json.JSONDecodeError as err:
+            self.set_status(400)
+            self.write({
+                "status": "error",
+                "message": f"Invalid request JSON: {err}"
+            })
+        except Exception as err:
+            report_critical_error(self, log, err)
+        self.finish()
+
+
 class ModelExistsAPIHandler(APIHandler):
     '''
     ################################################################################################
