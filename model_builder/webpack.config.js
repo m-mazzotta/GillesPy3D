@@ -15,7 +15,8 @@ module.exports = {
     workflowEditor: './client/pages/workflow-manager.js',
     projectManager: './client/pages/project-manager.js',
     loadingPage: './client/pages/loading-page.js',
-    multiplePlots: './client/pages/multiple-plots.js'
+    multiplePlots: './client/pages/multiple-plots.js',
+    spatialMockup: './client/pages/spatial-mockup.js',
   },
   output: {
     filename: 'model_builder-[name].bundle.js',
@@ -105,6 +106,13 @@ module.exports = {
       filename: 'multiple-plots-page.html',
       template: 'page_template.pug',
       name: 'multiplePlots',
+      inject: false
+    }),
+    new HtmlWebpackPlugin({
+      title: 'GillesPy3D | Spatial model mockup',
+      filename: 'model_builder-spatial-mockup.html',
+      template: 'page_template_standalone.pug',
+      name: 'spatialMockup',
       inject: false
     })
   ],
