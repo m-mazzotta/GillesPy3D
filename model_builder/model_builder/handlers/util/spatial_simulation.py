@@ -83,6 +83,29 @@ class SpatialSimulation(GillesPy3DJob):
                     TimeSpan.arange(step_size, t=end + step_size, timestep_size=timestep_size)
                 )
 
+    def __plot_preview_target(self, results, target, kwargs):
+        properties = ["type", "rho", "mass", "nu"]
+        plot_kwargs = dict(kwargs)
+        if target in properties or target.startswith("v["):
+            property_name = target
+            if target.startswith("v["):
+                plot_kwargs['p_ndx'] = int(target[2])
+                property_name = "v"
+            plot = results.plot_property(
+                property_name=property_name,
+                **plot_kwargs
+            )
+        else:
+            concentration = self.s_model['defaultMode'] == "discrete-concentration"
+            deterministic = self.s_model['defaultMode'] == "continuous"
+            plot = results.plot_species(
+                species=target, concentration=concentration,
+                deterministic=deterministic, **plot_kwargs
+            )
+        plot["layout"]["autosize"] = True
+        plot["config"] = {"responsive": True, "displayModeBar": True}
+        return plot
+
     def run(self, preview=False, verbose=False):
         '''
         Run a SpatialPy ensemble simulation job
@@ -98,23 +121,17 @@ class SpatialSimulation(GillesPy3DJob):
             if verbose:
                 self.log("info", "Running a preview spatial ensemble simulation")
             results = self.s_py_model.run()
-            properties = ["type", "rho", "mass", "nu"]
             t_ndx_list = list(range(len(os.listdir(results.result_dir)) - 1))
             kwargs = {"t_ndx_list": t_ndx_list, "animated": True, "width": "auto", "height": "auto",
                       "return_plotly_figure": True, "f_duration": 100, "t_duration": 100}
-            if self.target in properties or self.target.startswith("v["):
-                if self.target.startswith("v["):
-                    kwargs['p_ndx'] = int(self.target[2])
-                    self.target = "v"
-                plot = results.plot_property(property_name=self.target, **kwargs)
-            else:
-                concentration = self.s_model['defaultMode'] == "discrete-concentration"
-                deterministic = self.s_model['defaultMode'] == "continuous"
-                plot = results.plot_species(species=self.target, concentration=concentration,
-                                            deterministic=deterministic, **kwargs)
-            plot["layout"]["autosize"] = True
-            plot["config"] = {"responsive": True, "displayModeBar": True}
-            return plot
+            if self.target == "__all_species__":
+                species = [entry['name'] for entry in self.s_model['species']]
+                figures = {
+                    name: self.__plot_preview_target(results, name, kwargs)
+                    for name in species
+                }
+                return {"species": species, "figures": figures}
+            return self.__plot_preview_target(results, self.target, kwargs)
         if verbose:
             log.info("Running the spatial ensemble simulation")
         self.__update_timespan()

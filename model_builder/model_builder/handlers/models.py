@@ -16,7 +16,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 import os
+import copy
 import json
+import re
 import uuid
 import logging
 import subprocess
@@ -249,6 +251,105 @@ class RunModelAPIHandler(APIHandler):
                 self.write(resp)
             except Exception as err:
                 report_critical_error(self, log, err)
+        self.finish()
+
+
+class SpatialMockupModelAPIHandler(APIHandler):
+    '''
+    Persist structured spatial mockup models as validated .smdl files.
+    '''
+    NAME_PATTERN = re.compile(r'^[A-Za-z][A-Za-z0-9_-]{0,63}$')
+    FOLDER_PATTERN = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$')
+
+    @classmethod
+    def _get_relative_path(cls, name, folder):
+        if not isinstance(name, str) or not cls.NAME_PATTERN.fullmatch(name):
+            raise ValueError(
+                "Model names must start with a letter and contain only letters, "
+                "numbers, underscores, or hyphens."
+            )
+        if not isinstance(folder, str) or not folder or os.path.isabs(folder) or '\\' in folder:
+            raise ValueError("Save folder must be a relative folder path.")
+
+        parts = folder.split('/')
+        if any(part in ('', '.', '..') or not cls.FOLDER_PATTERN.fullmatch(part) for part in parts):
+            raise ValueError(
+                "Save folders may contain letters, numbers, spaces, underscores, "
+                "hyphens, and forward slashes."
+            )
+        return os.path.join(*parts, f"{name}.smdl")
+
+    @staticmethod
+    def _validate_model(model, path):
+        if not isinstance(model, dict):
+            raise ValueError("The spatial model must be a JSON object.")
+        required = ('domain', 'species', 'parameters', 'reactions', 'modelSettings')
+        missing = [key for key in required if key not in model]
+        if missing:
+            raise ValueError(f"The spatial model is missing: {', '.join(missing)}.")
+        if model.get('is_spatial') is not True:
+            raise ValueError("The model must be marked as spatial.")
+
+        try:
+            validator = GillesPy3DSpatialModel(path=path)
+            validator.model = copy.deepcopy(model)
+            validator.convert_to_spatialpy(include_model_settings=True)
+        except Exception as err:
+            raise ValueError(f"Spatial model validation failed: {err}") from err
+
+    @web.authenticated
+    async def post(self):
+        self.set_header('Content-Type', 'application/json')
+        tmp_path = None
+        try:
+            data = json.loads(self.request.body.decode() or '{}')
+            name = data.get('name', '')
+            folder = data.get('folder', 'SpatialMockupModels')
+            overwrite = data.get('overwrite') is True
+            model = data.get('model')
+
+            relative_path = self._get_relative_path(name, folder)
+            user_dir = os.path.realpath(GillesPy3DSpatialModel.user_dir)
+            full_path = os.path.realpath(os.path.join(user_dir, relative_path))
+            if os.path.commonpath((user_dir, full_path)) != user_dir:
+                raise ValueError("The save path must remain inside the user directory.")
+
+            exists = os.path.exists(full_path)
+            if exists and not overwrite:
+                self.set_status(409)
+                self.write({
+                    "status": "conflict",
+                    "message": "A model with this name already exists.",
+                    "path": relative_path
+                })
+                self.finish()
+                return
+
+            self._validate_model(model, relative_path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            tmp_path = f"{full_path}.{uuid.uuid4().hex}.tmp"
+            with open(tmp_path, 'w', encoding='utf-8') as model_file:
+                json.dump(model, model_file, indent=4, sort_keys=True)
+            os.replace(tmp_path, full_path)
+            tmp_path = None
+
+            self.write({
+                "status": "success",
+                "message": "Spatial model saved.",
+                "path": relative_path,
+                "created": not exists
+            })
+        except json.JSONDecodeError as err:
+            self.set_status(400)
+            self.write({"status": "error", "message": f"Invalid request JSON: {err}"})
+        except ValueError as err:
+            self.set_status(400)
+            self.write({"status": "error", "message": str(err)})
+        except Exception as err:
+            report_critical_error(self, log, err)
+        finally:
+            if tmp_path is not None and os.path.exists(tmp_path):
+                os.remove(tmp_path)
         self.finish()
 
 

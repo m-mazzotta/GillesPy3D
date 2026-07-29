@@ -92,6 +92,7 @@ def get_page_handlers(route_start):
         (r"/model_builder/api/spatial-model/load-domain\/?", LoadDomainEditorAPIHandler),
         (r"/model_builder/api/spatial-model/domain-plot\/?", LoadDomainAPIHandler),
         (r"/model_builder/api/model/run\/?", RunModelAPIHandler),
+        (r"/model_builder/api/spatial-mockup/model\/?", SpatialMockupModelAPIHandler),
         (r"/model_builder/api/spatial-mockup/run\/?", RunSpatialMockupAPIHandler),
         (r"/model_builder/api/model/exists\/?", ModelExistsAPIHandler),
         (r"/model_builder/api/spatial-model/import-mesh\/?", ImportMeshAPIHandler),

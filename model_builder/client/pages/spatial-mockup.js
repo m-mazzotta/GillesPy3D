@@ -21,14 +21,8 @@ and canvas preview (not connected to SpatialPy).
 
 (function () {
   var Plotly = require('plotly.js-dist');
+  var modelAdapter = require('../spatial-mockup-model-adapter');
   var resizeBound = false;
-
-  // image mapping
-  var IMAGE_MAP = {
-    low: '/static/sphere_low.png',
-    medium: '/static/sphere_medium.png',
-    high: '/static/sphere_high.png'
-  };
 
   function mount() {
 
@@ -66,11 +60,10 @@ style.textContent =
     'font-size:14px;' +
   '}' +
 
-  '#sm-image{' +
-    'display:block;' +
+  '#sm-domain-plot{' +
     'width:500px;' +
+    'max-width:100%;' +
     'height:500px;' +
-    'object-fit:contain;' +
     'margin:auto;' +
     'border:1px solid #ccc;' +
     'border-radius:6px;' +
@@ -79,12 +72,13 @@ style.textContent =
 
   '.sm-actions{' +
     'display:flex;' +
+    'flex-wrap:wrap;' +
     'align-items:center;' +
     'gap:12px;' +
     'margin-top:12px;' +
   '}' +
 
-  '#sm-run{' +
+  '#sm-run,#sm-save{' +
     'padding:8px 12px;' +
     'border:1px solid #bbb;' +
     'border-radius:6px;' +
@@ -92,9 +86,34 @@ style.textContent =
     'cursor:pointer;' +
   '}' +
 
-  '#sm-run:disabled{' +
+  '#sm-run:disabled,#sm-save:disabled{' +
     'cursor:not-allowed;' +
     'opacity:0.65;' +
+  '}' +
+
+  '.sm-model-grid{' +
+    'display:grid;' +
+    'grid-template-columns:repeat(2,minmax(220px,1fr));' +
+    'gap:12px;' +
+  '}' +
+
+  '.sm-model-field label{' +
+    'display:block;' +
+    'font-weight:600;' +
+    'margin-bottom:5px;' +
+  '}' +
+
+  '.sm-model-field input[type="text"]{' +
+    'width:100%;' +
+    'box-sizing:border-box;' +
+    'padding:7px 9px;' +
+    'border:1px solid #bbb;' +
+    'border-radius:5px;' +
+  '}' +
+
+  '#sm-save-status{' +
+    'font-size:14px;' +
+    'margin:10px 0 0 0;' +
   '}' +
 
   '#sm-run-status{' +
@@ -174,6 +193,27 @@ style.textContent =
         '</label>' +
       '</div>' +
 
+      '<div class="sm-panel">' +
+        '<strong>Model</strong>' +
+        '<div class="sm-model-grid">' +
+          '<div class="sm-model-field">' +
+            '<label for="sm-model-name">Model name</label>' +
+            '<input id="sm-model-name" type="text" value="spatial_mockup" />' +
+          '</div>' +
+          '<div class="sm-model-field">' +
+            '<label for="sm-model-folder">Save folder</label>' +
+            '<input id="sm-model-folder" type="text" value="SpatialMockupModels" />' +
+          '</div>' +
+        '</div>' +
+        '<label style="display:block;margin-top:10px">' +
+          '<input id="sm-overwrite" type="checkbox" /> Overwrite an existing model' +
+        '</label>' +
+        '<div class="sm-actions">' +
+          '<button id="sm-save" type="button">Save Model</button>' +
+        '</div>' +
+        '<p id="sm-save-status">Not saved.</p>' +
+      '</div>' +
+
       // density slider
       '<div class="sm-panel">' +
         '<label for="sm-density"><strong>Particle Density</strong></label><br/><br/>' +
@@ -204,9 +244,9 @@ style.textContent =
         '</div>' +
       '</div>' +
 
-      // image preview + plot (wider / taller plot area than other panels)
+      // live domain preview + simulation plot
       '<div class="sm-panel sm-panel-plot">' +
-        '<img id="sm-image" />' +
+        '<div id="sm-domain-plot"></div>' +
         '<p id="sm-meta"></p>' +
         '<div id="sm-species-wrap" class="sm-species-row" style="display:none">' +
           '<label for="sm-species"><strong>View Species</strong></label> ' +
@@ -228,8 +268,13 @@ style.textContent =
 
     // elements
     var densityEl = document.getElementById('sm-density');
-    var imgEl = document.getElementById('sm-image');
+    var domainPlotEl = document.getElementById('sm-domain-plot');
     var metaEl = document.getElementById('sm-meta');
+    var modelNameEl = document.getElementById('sm-model-name');
+    var modelFolderEl = document.getElementById('sm-model-folder');
+    var overwriteEl = document.getElementById('sm-overwrite');
+    var saveBtnEl = document.getElementById('sm-save');
+    var saveStatusEl = document.getElementById('sm-save-status');
     var runBtnEl = document.getElementById('sm-run');
     var runStatusEl = document.getElementById('sm-run-status');
     var plotEl = document.getElementById('sm-plot');
@@ -241,9 +286,13 @@ style.textContent =
     var speciesEl = document.getElementById('sm-species');
 
     var reactionCount = 1;
-    var hasSuccessfulRun = false;
     var cachedFigures = null;
     var lastRunSummary = null;
+    var structuredModel = null;
+    var domainPreviewTimer = null;
+    var domainPreviewRequest = 0;
+    var savedPath = null;
+    var savedModelKey = null;
 
     function syncSpeciesOptions() {
       var options = speciesEl.options;
@@ -264,49 +313,49 @@ style.textContent =
       }
     }
 
-    function resetReactionUi() {
-      reactionCount = 1;
-      hasSuccessfulRun = false;
-      cachedFigures = null;
-      lastRunSummary = null;
-      r2DescEl.style.display = 'none';
-      r3DescEl.style.display = 'none';
-      speciesWrapEl.style.display = 'none';
-      speciesEl.value = 'A';
-      syncSpeciesOptions();
-      addReactionBtn.disabled = false;
-      addReactionBtn.textContent = 'Add reaction';
-    }
-
-    function syncReactionUiToDensity() {
-      if (getDensityLevel() !== 'low') {
-        resetReactionUi();
-        addReactionBtn.disabled = true;
-      } else {
-        addReactionBtn.disabled = reactionCount >= 3;
-        if (reactionCount >= 2) {
-          speciesWrapEl.style.display = '';
-        }
-        syncSpeciesOptions();
+    function syncReactionUi() {
+      addReactionBtn.disabled = reactionCount >= 3;
+      if (reactionCount >= 2) {
+        speciesWrapEl.style.display = '';
       }
+      syncSpeciesOptions();
     }
 
-    // update image
+    // Update structured state and request its SpatialPy domain preview.
     function draw() {
 
       var densityLevel = getDensityLevel();
 
-      imgEl.src = IMAGE_MAP[densityLevel];
-
-      metaEl.textContent =
-        'Sphere (' + densityLevel + ' density)';
-      syncReactionUiToDensity();
+      syncReactionUi();
+      var model = refreshStructuredModel();
+      scheduleDomainPreview(model.domain, densityLevel);
     }
 
     densityEl.addEventListener('input', draw);
 
+    [modelNameEl, modelFolderEl].forEach(function (input) {
+      input.addEventListener('input', function () {
+        savedPath = null;
+        savedModelKey = null;
+        saveStatusEl.textContent = 'Not saved.';
+      });
+    });
+
+    saveBtnEl.addEventListener('click', async function () {
+      saveBtnEl.disabled = true;
+      saveBtnEl.textContent = 'Saving...';
+      try {
+        await saveStructuredModel(refreshStructuredModel());
+      } catch (err) {
+        saveStatusEl.textContent = 'Save failed: ' + err.message;
+      } finally {
+        saveBtnEl.disabled = false;
+        saveBtnEl.textContent = 'Save Model';
+      }
+    });
+
     addReactionBtn.addEventListener('click', function () {
-      if (getDensityLevel() !== 'low' || reactionCount >= 3) {
+      if (reactionCount >= 3) {
         return;
       }
       reactionCount += 1;
@@ -321,7 +370,7 @@ style.textContent =
       syncSpeciesOptions();
       // New reaction set invalidates previous cached figures.
       cachedFigures = null;
-      hasSuccessfulRun = false;
+      refreshStructuredModel();
     });
 
     speciesEl.addEventListener('change', function () {
@@ -336,6 +385,8 @@ style.textContent =
           resultEl.style.display = 'block';
           resultEl.textContent = JSON.stringify(lastRunSummary, null, 2);
         }
+      } else {
+        runStatusEl.textContent = 'Run Simulation to generate the ' + selected + ' view.';
       }
     });
 
@@ -350,15 +401,155 @@ style.textContent =
       return 'high';
     }
 
+    function refreshStructuredModel() {
+      structuredModel = modelAdapter.buildSpatialMockupModel({
+        density: getDensityLevel(),
+        reactionCount: reactionCount
+      });
+      return structuredModel;
+    }
+
+    function getModelIdentity() {
+      var name = modelNameEl.value.trim();
+      var folder = modelFolderEl.value.trim();
+      if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) {
+        throw new Error(
+          'Model name must start with a letter and use only letters, numbers, underscores, or hyphens.'
+        );
+      }
+      var folderParts = folder.split('/');
+      var validFolder = folder &&
+        folder.indexOf('\\') < 0 &&
+        folderParts.every(function (part) {
+          return /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/.test(part);
+        });
+      if (!validFolder) {
+        throw new Error(
+          'Save folder may use letters, numbers, spaces, underscores, hyphens, and forward slashes.'
+        );
+      }
+      return {
+        name: name,
+        folder: folder,
+        key: folder + '/' + name
+      };
+    }
+
+    async function readJSONResponse(response) {
+      var text = await response.text();
+      var data;
+      try {
+        data = JSON.parse(text.replace(/\bNaN\b/g, 'null'));
+      } catch (err) {
+        throw new Error('The server returned an invalid response.');
+      }
+      if (!response.ok) {
+        throw new Error(data.message || data.Message || 'The request failed.');
+      }
+      return data;
+    }
+
+    async function saveStructuredModel(model) {
+      var identity = getModelIdentity();
+      var canUpdate = savedPath !== null && savedModelKey === identity.key;
+      saveStatusEl.textContent = 'Saving model...';
+
+      var response = await fetch('/model_builder/api/spatial-mockup/model', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: identity.name,
+          folder: identity.folder,
+          overwrite: overwriteEl.checked || canUpdate,
+          model: model
+        })
+      });
+      var data = await readJSONResponse(response);
+      savedPath = data.path;
+      savedModelKey = identity.key;
+      saveStatusEl.textContent = 'Saved to ' + savedPath + '.';
+      return savedPath;
+    }
+
+    function scheduleDomainPreview(domain, densityLevel) {
+      if (domainPreviewTimer !== null) {
+        window.clearTimeout(domainPreviewTimer);
+      }
+
+      domainPreviewRequest += 1;
+      var requestID = domainPreviewRequest;
+      metaEl.textContent = 'Generating ' + densityLevel + ' density domain...';
+
+      domainPreviewTimer = window.setTimeout(function () {
+        loadDomainPreview(domain, densityLevel, requestID);
+      }, 200);
+    }
+
+    async function loadDomainPreview(domain, densityLevel, requestID) {
+      try {
+        var response = await fetch('/model_builder/api/spatial-model/domain-plot', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(domain)
+        });
+        var data = await response.json();
+
+        if (requestID !== domainPreviewRequest) {
+          return;
+        }
+        if (!response.ok || !data.fig) {
+          throw new Error(data.Message || data.message || 'Failed to generate domain preview.');
+        }
+
+        renderDomainFigure(data.fig);
+        var particleCount = Array.isArray(data.particles) ? data.particles.length : 0;
+        metaEl.textContent =
+          'Sphere (' + densityLevel + ' density) \u00b7 ' + particleCount + ' particles';
+      } catch (err) {
+        if (requestID !== domainPreviewRequest) {
+          return;
+        }
+        Plotly.purge(domainPlotEl);
+        domainPlotEl.innerHTML = '';
+        metaEl.textContent = 'Domain preview failed: ' + err.message;
+      }
+    }
+
     function ensureResizeListener() {
       if (!resizeBound) {
         resizeBound = true;
         window.addEventListener('resize', function () {
-          if (plotEl && plotEl.classList && plotEl.classList.contains('js-plotly-plot')) {
-            Plotly.Plots.resize(plotEl);
-          }
+          [domainPlotEl, plotEl].forEach(function (element) {
+            if (element && element.classList && element.classList.contains('js-plotly-plot')) {
+              Plotly.Plots.resize(element);
+            }
+          });
         });
       }
+    }
+
+    function renderDomainFigure(figure) {
+      if (!figure || !figure.data || !figure.layout) {
+        return;
+      }
+      Plotly.purge(domainPlotEl);
+      domainPlotEl.innerHTML = '';
+      var fig = {
+        data: figure.data,
+        layout: tunePlotlyLayout(figure.layout),
+        config: Object.assign(
+          { responsive: true, scrollZoom: true, displayModeBar: true },
+          figure.config || {}
+        )
+      };
+      Plotly.newPlot(domainPlotEl, fig).then(function (gd) {
+        Plotly.Plots.resize(gd);
+      });
+      ensureResizeListener();
     }
 
     function renderFigure(figure) {
@@ -423,13 +614,52 @@ style.textContent =
 
     function setRunState(isRunning, statusText) {
       runBtnEl.disabled = isRunning;
+      saveBtnEl.disabled = isRunning;
       runBtnEl.textContent = isRunning ? 'Running...' : 'Run Simulation';
       runStatusEl.textContent = statusText;
     }
 
+    function wait(milliseconds) {
+      return new Promise(function (resolve) {
+        window.setTimeout(resolve, milliseconds);
+      });
+    }
+
+    async function pollStructuredSimulation(path, outfile) {
+      while (true) {
+        await wait(1000);
+        var query = '?cmd=read&outfile=' + encodeURIComponent(outfile) +
+          '&path=' + encodeURIComponent(path);
+        var response = await fetch('/model_builder/api/model/run' + query);
+        var data = await readJSONResponse(response);
+        var results = data.Results || {};
+
+        if (results.errors) {
+          throw new Error(results.errors);
+        }
+        if (!data.Running) {
+          return results;
+        }
+      }
+    }
+
+    async function runStructuredSimulation(path, target) {
+      var query = '?cmd=start&outfile=none&path=' + encodeURIComponent(path) +
+        '&target=' + encodeURIComponent(target);
+      var response = await fetch('/model_builder/api/model/run' + query);
+      var data = await readJSONResponse(response);
+      if (!data.Outfile) {
+        throw new Error('The preview runner did not return an output identifier.');
+      }
+      return pollStructuredSimulation(path, data.Outfile);
+    }
+
     async function runSimulation() {
       var densityLevel = getDensityLevel();
-      setRunState(true, 'Running simulation for ' + densityLevel + ' density...');
+      var model = refreshStructuredModel();
+      var selected = speciesEl.value || 'A';
+      var startedAt = Date.now();
+      setRunState(true, 'Saving and running the structured spatial model...');
       speciesEl.disabled = true;
       plotEl.style.display = 'none';
       resultEl.style.display = 'none';
@@ -438,58 +668,41 @@ style.textContent =
       lastRunSummary = null;
 
       try {
-        var activeReactionCount = getDensityLevel() === 'low' ? reactionCount : 1;
-        var response = await fetch('/model_builder/api/spatial-mockup/run', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            density: densityLevel,
-            reaction_count: activeReactionCount,
-            species: speciesEl.value || 'A'
-          })
-        });
-
-        var data = await response.json();
-        if (!response.ok || data.status === 'error') {
-          throw new Error(data.message || 'Failed to run simulation.');
+        var activeReactionCount = reactionCount;
+        var path = await saveStructuredModel(model);
+        runStatusEl.textContent = 'Running ' + path + ' for all species...';
+        var results = await runStructuredSimulation(path, '__all_species__');
+        var preview = results.results || {};
+        cachedFigures = preview.figures || {};
+        if (Object.keys(cachedFigures).length === 0 && preview.data && preview.layout) {
+          cachedFigures[selected] = preview;
         }
-
-        cachedFigures = data.figures || {};
-        if ((!cachedFigures || Object.keys(cachedFigures).length === 0) && data.figure) {
-          cachedFigures = {};
-          cachedFigures[data.viewing_species || 'A'] = data.figure;
+        if (!cachedFigures[selected]) {
+          selected = Object.keys(cachedFigures)[0];
+          speciesEl.value = selected;
         }
-
-        var selected = speciesEl.value || data.viewing_species || 'A';
-        if (!cachedFigures[selected] && data.figure) {
-          selected = data.viewing_species || Object.keys(cachedFigures)[0] || 'A';
+        if (!selected || !cachedFigures[selected]) {
+          throw new Error('The structured simulation completed without species figures.');
         }
-        if (cachedFigures[selected]) {
-          renderFigure(cachedFigures[selected]);
-        }
+        renderFigure(cachedFigures[selected]);
 
         setRunState(false, 'Simulation completed.');
-        hasSuccessfulRun = true;
         speciesEl.disabled = false;
         lastRunSummary = {
-          status: data.status,
-          message: data.message,
-          elapsed_seconds: data.elapsed_seconds,
-          model_name: data.model_name,
-          num_trajectories: data.num_trajectories,
-          density: data.density,
-          species: data.species,
+          status: 'success',
+          message: 'Structured SpatialPy simulation completed.',
+          elapsed_seconds: Math.round((Date.now() - startedAt) / 100) / 10,
+          model_path: path,
+          density: densityLevel,
+          species: preview.species || model.species.map(function (item) { return item.name; }),
           viewing_species: selected,
-          reaction_count: data.reaction_count,
-          script: data.script
+          reaction_count: activeReactionCount,
+          executor: 'convert_to_spatialpy'
         };
         resultEl.style.display = 'block';
         resultEl.textContent = JSON.stringify(lastRunSummary, null, 2);
       } catch (err) {
         setRunState(false, 'Simulation failed.');
-        hasSuccessfulRun = false;
         cachedFigures = null;
         lastRunSummary = null;
         speciesEl.disabled = false;
