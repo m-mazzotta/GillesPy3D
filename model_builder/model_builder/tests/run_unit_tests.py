@@ -34,12 +34,16 @@ def run(mode=None):
     from unit_tests import test_settings_template
     from unit_tests import test_model_builder_base
     from unit_tests import test_model_builder_file
-    
+    from unit_tests import test_spatial_mockup_model
+    from unit_tests import test_spatial_simulation_preview
+
     modules = [
         test_model_template,
         test_settings_template,
         test_model_builder_base,
-        test_model_builder_file
+        test_model_builder_file,
+        test_spatial_mockup_model,
+        test_spatial_simulation_preview
     ]
 
     for module in modules:

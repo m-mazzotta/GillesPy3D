@@ -166,6 +166,24 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
             particles.append(particle)
         return particles
 
+    def __convert_particles(self, domain, s_domain, type_ids):
+        try:
+            for particle in s_domain.get('particles', []):
+                kwargs = {
+                    'mass': particle['mass'],
+                    'vol': particle['volume'],
+                    'rho': particle['rho'],
+                    'nu': particle['nu'],
+                    'c': particle['c'],
+                    'fixed': particle['fixed'],
+                    'type_id': type_ids[particle['type']].replace("-", "")
+                }
+                domain.add_point(particle['point'], **kwargs)
+        except KeyError as err:
+            message = "Spatial domain particles are not properly formatted or "
+            message += f"are referenced incorrectly: {str(err)}"
+            raise GillesPy3DModelFormatError(message, traceback.format_exc()) from err
+
     def __convert_actions(self, domain, s_domain, type_ids):
         geometries, lattices = self.__convert_shapes(s_domain)
         transformations = self.__convert_transformations(s_domain)
@@ -281,7 +299,14 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
             if gravity == [0, 0, 0]:
                 gravity = None
             domain = Domain(0, xlim, ylim, zlim, rho0=rho0, c0=c_0, P0=p_0, gravity=gravity)
-            self.__convert_actions(domain, s_domain, type_ids)
+            enabled_fill_actions = [
+                action for action in s_domain.get('actions', [])
+                if action.get('enable') and action.get('type') == 'Fill Action'
+            ]
+            if s_domain.get('particles') and not enabled_fill_actions:
+                self.__convert_particles(domain, s_domain, type_ids)
+            else:
+                self.__convert_actions(domain, s_domain, type_ids)
             if model is None:
                 self.__convert_types(domain, type_ids)
                 return domain
@@ -372,7 +397,7 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
             geometries = {}
             comb_geoms = []
             lattices = {}
-            for s_shape in s_domain['shapes']:
+            for s_shape in s_domain.get('shapes', []):
                 # Create geometry from shape
                 geo_name = f"{s_shape['name']}_geom"
                 if s_shape['type'] == "Standard":
@@ -630,6 +655,35 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
         return plotly.graph_objs.Scatter3d(
             ids=ids, x=x_data, y=y_data, z=z_data, name=name, mode="markers", marker=marker
         )
+
+    def __get_domain_plot_from_particles(self, s_domain):
+        fig_data = []
+        for index, d_type in enumerate(s_domain.get('types', [])):
+            particles = [
+                particle for particle in s_domain.get('particles', [])
+                if particle['type'] == d_type['typeID']
+            ]
+            if d_type['name'] == "Un-Assigned" and not particles:
+                continue
+            fig_data.append(self.__get_trace_data(
+                particles=particles,
+                name=d_type['name'],
+                index=index,
+                dimensions=3
+            ))
+        fig = {
+            'data': fig_data,
+            'layout': {
+                'width': None,
+                'height': None,
+                'autosize': True,
+                'scene': {'aspectmode': 'data'},
+                'xaxis': {'range': s_domain.get('x_lim', [])},
+                'yaxis': {'range': s_domain.get('y_lim', [])},
+            },
+            'config': {'responsive': True}
+        }
+        return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
 
     def __load_domain_from_file(self, path):
         try:
@@ -958,6 +1012,19 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
 
     def load_action_preview(self, s_domain):
         ''' Get a domain preview of all enabled actions. '''
+        enabled_fill_actions = [
+            action for action in s_domain.get('actions', [])
+            if action.get('enable') and action.get('type') == 'Fill Action'
+        ]
+        if s_domain.get('particles') and not enabled_fill_actions:
+            limits = [
+                list(s_domain['x_lim']),
+                list(s_domain['y_lim']),
+                list(s_domain['z_lim'])
+            ]
+            plot = self.__get_domain_plot_from_particles(s_domain)
+            return plot, limits
+
         types = sorted(s_domain['types'], key=lambda d_type: d_type['typeID'])
         type_ids = {d_type['typeID']: d_type['name'] for d_type in types}
         domain = self.__convert_domain(type_ids, s_domain=s_domain)

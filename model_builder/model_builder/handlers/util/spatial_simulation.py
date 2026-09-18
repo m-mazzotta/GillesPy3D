@@ -17,10 +17,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
 import os
+import json
 import pickle
 import logging
 import traceback
 
+import numpy
+import plotly.graph_objects as go
 from spatialpy import TimeSpan
 
 from .model_builder_job import GillesPy3DJob
@@ -106,6 +109,122 @@ class SpatialSimulation(GillesPy3DJob):
         plot["config"] = {"responsive": True, "displayModeBar": True}
         return plot
 
+    @staticmethod
+    def __format_time_label(value):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return value
+        if abs(number - round(number)) < 1e-9:
+            return int(round(number))
+        return round(number, 6)
+
+    @classmethod
+    def __format_time_labels(cls, times):
+        return [cls.__format_time_label(value) for value in times]
+
+    def __preview_frame_labels(self, results):
+        '''
+        Build animation slider labels from the model timespan (simulation time),
+        not raw output-file indices.
+        '''
+        times = self.__timespan_to_list(results.get_timespan())
+        try:
+            entries = os.listdir(results.result_dir)
+        except OSError:
+            entries = []
+
+        vtk_count = sum(
+            1 for name in entries
+            if name.startswith("output") and name.endswith(".vtk")
+        )
+        if vtk_count <= 0:
+            # Some fixtures only expose a result-dir file count.
+            vtk_count = max(len(entries) - 1, 0)
+
+        if times:
+            count = min(len(times), vtk_count) if vtk_count > 0 else len(times)
+            return self.__format_time_labels(times[:count])
+        if vtk_count > 0:
+            return list(range(vtk_count))
+        return [0]
+
+    @staticmethod
+    def __timespan_to_list(times, num_points=None):
+        if hasattr(times, "items"):
+            values = times.items
+        elif hasattr(times, "tolist"):
+            values = times
+        else:
+            values = numpy.asarray(list(times))
+
+        if hasattr(values, "tolist"):
+            values = values.tolist()
+        else:
+            values = list(values)
+
+        if num_points is None:
+            return values
+
+        if len(values) == num_points:
+            return values
+        if len(values) > num_points:
+            return values[:num_points]
+        if len(values) >= 2:
+            return numpy.linspace(
+                float(values[0]), float(values[-1]), num_points
+            ).tolist()
+        end = float(values[0]) if values else float(max(num_points - 1, 0))
+        return numpy.linspace(0.0, end, num_points).tolist()
+
+    def __plot_species_timeseries(self, results, species_names):
+        concentration = self.s_model['defaultMode'] == "discrete-concentration"
+        deterministic = self.s_model['defaultMode'] == "continuous"
+        figure = go.Figure()
+
+        for name in species_names:
+            species_data = results.get_species(
+                name, concentration=concentration, deterministic=deterministic
+            )
+            totals = numpy.sum(species_data, axis=1)
+            times = self.__timespan_to_list(
+                results.get_timespan(),
+                num_points=totals.shape[0]
+            )
+            if hasattr(totals, "tolist"):
+                totals = totals.tolist()
+            figure.add_trace(go.Scatter(
+                x=times,
+                y=totals,
+                mode="lines",
+                name=name
+            ))
+
+        if concentration:
+            y_label = "Concentration"
+        elif deterministic:
+            y_label = "Deterministic value"
+        else:
+            y_label = "Count"
+
+        figure.update_layout(
+            title="Species totals over time",
+            xaxis_title="Time",
+            yaxis_title=y_label,
+            autosize=True,
+            legend={
+                "orientation": "h",
+                "yanchor": "bottom",
+                "y": 1.02,
+                "xanchor": "right",
+                "x": 1
+            }
+        )
+        plot = json.loads(figure.to_json())
+        plot["layout"]["autosize"] = True
+        plot["config"] = {"responsive": True, "displayModeBar": True}
+        return plot
+
     def run(self, preview=False, verbose=False):
         '''
         Run a SpatialPy ensemble simulation job
@@ -121,7 +240,7 @@ class SpatialSimulation(GillesPy3DJob):
             if verbose:
                 self.log("info", "Running a preview spatial ensemble simulation")
             results = self.s_py_model.run()
-            t_ndx_list = list(range(len(os.listdir(results.result_dir)) - 1))
+            t_ndx_list = self.__preview_frame_labels(results)
             kwargs = {"t_ndx_list": t_ndx_list, "animated": True, "width": "auto", "height": "auto",
                       "return_plotly_figure": True, "f_duration": 100, "t_duration": 100}
             if self.target == "__all_species__":
@@ -130,8 +249,17 @@ class SpatialSimulation(GillesPy3DJob):
                     name: self.__plot_preview_target(results, name, kwargs)
                     for name in species
                 }
-                return {"species": species, "figures": figures}
-            return self.__plot_preview_target(results, self.target, kwargs)
+                return {
+                    "species": species,
+                    "figures": figures,
+                    "timeseries_figure": self.__plot_species_timeseries(results, species)
+                }
+            species = [entry['name'] for entry in self.s_model['species']]
+            spatial_figure = self.__plot_preview_target(results, self.target, kwargs)
+            spatial_figure["timeseries_figure"] = self.__plot_species_timeseries(
+                results, species
+            )
+            return spatial_figure
         if verbose:
             log.info("Running the spatial ensemble simulation")
         self.__update_timespan()
