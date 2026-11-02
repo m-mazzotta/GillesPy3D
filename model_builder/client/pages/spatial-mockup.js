@@ -45,6 +45,30 @@ style.textContent =
     'background:#fafafa;' +
   '}' +
 
+  '.sm-panel > .sm-panel-title{' +
+    'display:block;' +
+    'font-size:18px;' +
+    'font-weight:700;' +
+    'margin:0 0 12px 0;' +
+  '}' +
+
+  '.sm-subsection{' +
+    'border:1px solid #e4e4e4;' +
+    'border-radius:6px;' +
+    'padding:14px;' +
+    'margin:0 0 14px 0;' +
+    'background:#fff;' +
+  '}' +
+
+  '.sm-subsection:last-child{' +
+    'margin-bottom:0;' +
+  '}' +
+
+  '.sm-subsection > strong{' +
+    'display:block;' +
+    'margin-bottom:6px;' +
+  '}' +
+
   '#sm-density{' +
     'display:block;' +
     'width:500px;' +
@@ -89,7 +113,7 @@ style.textContent =
     'margin-top:12px;' +
   '}' +
 
-  '#sm-run,#sm-save{' +
+  '#sm-run,#sm-save,#sm-download-csv,#sm-convert-notebook{' +
     'padding:8px 12px;' +
     'border:1px solid #bbb;' +
     'border-radius:6px;' +
@@ -97,9 +121,19 @@ style.textContent =
     'cursor:pointer;' +
   '}' +
 
-  '#sm-run:disabled,#sm-save:disabled{' +
+  '#sm-run:disabled,#sm-save:disabled,#sm-download-csv:disabled,#sm-convert-notebook:disabled{' +
     'cursor:not-allowed;' +
     'opacity:0.65;' +
+  '}' +
+
+  '#sm-download-csv,#sm-convert-notebook{' +
+    'background:#f7f7f7;' +
+  '}' +
+
+  '#sm-export-status{' +
+    'font-size:14px;' +
+    'margin:0;' +
+    'color:#555;' +
   '}' +
 
   '.sm-model-grid{' +
@@ -163,6 +197,27 @@ style.textContent =
     'box-sizing:border-box;' +
   '}' +
 
+  '#sm-spatial-profile-plot,#sm-spatial-profile-mid-plot{' +
+    'margin-top:8px;' +
+    'width:100%;' +
+    'min-height:min(80vh, 920px);' +
+    'height:min(80vh, 920px);' +
+    'display:none;' +
+    'box-sizing:border-box;' +
+  '}' +
+
+  '.sm-plot-heading-row{' +
+    'display:none;' +
+    'align-items:center;' +
+    'flex-wrap:wrap;' +
+    'gap:12px;' +
+    'margin:20px 0 0 0;' +
+  '}' +
+
+  '.sm-plot-heading-row.is-visible{' +
+    'display:flex;' +
+  '}' +
+
   '.sm-plot-heading{' +
     'display:none;' +
     'margin:20px 0 0 0;' +
@@ -172,6 +227,19 @@ style.textContent =
 
   '.sm-plot-heading.is-visible{' +
     'display:block;' +
+  '}' +
+
+  '.sm-plot-heading-row .sm-plot-heading{' +
+    'display:block;' +
+    'margin:0;' +
+  '}' +
+
+  '#sm-molecule-gradient{' +
+    'display:none;' +
+  '}' +
+
+  '#sm-molecule-gradient.is-visible{' +
+    'display:inline-block;' +
   '}' +
 
   '.sm-panel-plot{' +
@@ -277,7 +345,7 @@ style.textContent =
     'margin-bottom:5px;' +
   '}' +
 
-  '.sm-custom-field input,.sm-custom-field select,' +
+  '.sm-custom-field input,.sm-custom-field select,.sm-custom-field textarea,' +
   '.sm-stoich-row input,.sm-stoich-row select{' +
     'width:100%;' +
     'box-sizing:border-box;' +
@@ -286,6 +354,14 @@ style.textContent =
     'border-radius:5px;' +
     'background:#fff;' +
     'color:inherit;' +
+  '}' +
+
+  '.sm-custom-field textarea{' +
+    'font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;' +
+    'font-size:13px;' +
+    'resize:vertical;' +
+    'min-height:72px;' +
+    'line-height:1.35;' +
   '}' +
 
   '.sm-stoich-grid{' +
@@ -354,25 +430,10 @@ style.textContent =
     root.className = 'sm-wrap';
 
     root.innerHTML =
-      '<h1>Spatial Model Mockup</h1>' +
-
-      // shape selector
-      '<div class="sm-panel">' +
-        '<strong>Domain Shape</strong>' +
-        '<p class="sm-hint">Choose the particle lattice used for the domain preview and simulation. ' +
-         // 'Cylinder uses the reference 3D cylinder mesh from the legacy model creator.</p>' +
-        '<label style="margin-right:16px">' +
-          '<input type="radio" name="sm-shape" value="sphere" checked /> ' +
-          'Sphere' +
-        '</label>' +
-        '<label>' +
-          '<input type="radio" name="sm-shape" value="cylinder" /> ' +
-          'Cylinder' +
-        '</label>' +
-      '</div>' +
+      '<h1>Spatial Model Creator</h1>' +
 
       '<div class="sm-panel">' +
-        '<strong>Model</strong>' +
+        '<strong class="sm-panel-title">Model</strong>' +
         '<div class="sm-model-grid">' +
           '<div class="sm-model-field">' +
             '<label for="sm-model-name">Model name</label>' +
@@ -392,161 +453,216 @@ style.textContent =
         '<p id="sm-save-status">Not saved.</p>' +
       '</div>' +
 
-      // density slider (sphere lattice only; cylinder uses a fixed baked mesh)
-      '<div class="sm-panel" id="sm-density-panel">' +
-        '<label for="sm-density"><strong>Particle Density</strong></label>' +
-        '<p class="sm-hint">Controls spherical lattice spacing for the sphere domain.</p>' +
-        '<br/>' +
+      '<div class="sm-panel" id="sm-domain-panel">' +
+        '<strong class="sm-panel-title">Domain</strong>' +
 
-        '<input ' +
-          'type="range" ' +
-          'id="sm-density" ' +
-          'min="0" ' +
-          'max="2" ' +
-          'step="1" ' +
-          'value="0" ' +
-        '/>' +
-
-        '<div class="slider-labels">' +
-          '<span>Low</span>' +
-          '<span>Medium</span>' +
-          '<span>High</span>' +
+        '<div class="sm-subsection" id="sm-shapes-panel">' +
+          '<strong>Domain Shape</strong>' +
+          '<div class="sm-custom-field" style="margin-top:8px">' +
+            '<label for="sm-domain-example">Domain Examples</label>' +
+            '<select id="sm-domain-example">' +
+              '<option value="">Custom</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="sm-custom-field" style="margin-top:8px">' +
+            '<label for="sm-arrangement">Arrangement</label>' +
+            '<select id="sm-arrangement">' +
+              '<option value="nested">Nested</option>' +
+              '<option value="inline">End to end</option>' +
+            '</select>' +
+          '</div>' +
+          '<p class="sm-hint" id="sm-lattice-status">' +
+            'Name concentric spherical regions (for example Cytoplasm outside and Nucleus inside). ' +
+            'The largest radius is filled as the outer domain; smaller radii re-tag nested regions. ' +
+            'Choose Sphere or Cylinder when you add a shape.' +
+          '</p>' +
+          '<div id="sm-shape-list"></div>' +
+          '<div class="sm-reaction-actions">' +
+            '<button type="button" id="sm-add-shape">Add Shape</button>' +
+          '</div>' +
+          '<form id="sm-shape-form" class="sm-custom-form" style="display:none">' +
+            '<strong id="sm-shape-form-title">New shape</strong>' +
+            '<div class="sm-custom-field" style="margin-top:12px">' +
+              '<label for="sm-shape-lattice">Domain Lattice</label>' +
+              '<select id="sm-shape-lattice">' +
+                '<option value="sphere">Sphere</option>' +
+                '<option value="cylinder">Cylinder</option>' +
+              '</select>' +
+            '</div>' +
+            '<div class="sm-custom-grid" style="margin-top:12px">' +
+              '<div class="sm-custom-field">' +
+                '<label for="sm-shape-name">Name</label>' +
+                '<input id="sm-shape-name" type="text" placeholder="Nucleus" required />' +
+              '</div>' +
+              '<div class="sm-custom-field">' +
+                '<label for="sm-shape-radius">Radius</label>' +
+                '<select id="sm-shape-radius"></select>' +
+              '</div>' +
+            '</div>' +
+            '<div class="sm-custom-field" id="sm-shape-length-wrap" style="margin-top:12px;display:none">' +
+              '<label for="sm-shape-length">Length</label>' +
+              '<select id="sm-shape-length">' +
+                '<option value="1">1</option>' +
+                '<option value="2" selected>2</option>' +
+                '<option value="4">4</option>' +
+              '</select>' +
+            '</div>' +
+            '<div class="sm-custom-field" id="sm-shape-formula-wrap" style="margin-top:12px">' +
+              '<label for="sm-shape-formula-example">Formula</label>' +
+              '<select id="sm-shape-formula-example"></select>' +
+              '<textarea id="sm-shape-formula" rows="3" style="margin-top:8px" ' +
+                'placeholder="(x*x)+(y*y)+(z*z) &lt; 1" ' +
+                'spellcheck="false" required></textarea>' +
+              '<p class="sm-hint" style="margin-top:6px">' +
+                'Examples are written for radius 1 and rewritten for the selected radius.' +
+              '</p>' +
+            '</div>' +
+            '<p id="sm-shape-error"></p>' +
+            '<div class="sm-reaction-actions">' +
+              '<button type="submit" id="sm-shape-submit" class="sm-small-button">Save Shape</button>' +
+              '<button type="button" id="sm-cancel-shape" class="sm-small-button">Cancel</button>' +
+            '</div>' +
+          '</form>' +
         '</div>' +
+
+        '<div class="sm-subsection" id="sm-density-panel">' +
+          '<label for="sm-density"><strong>Particle Density</strong></label>' +
+          '<p class="sm-hint">Controls spherical lattice spacing for the sphere domain.</p>' +
+          '<br/>' +
+          '<input ' +
+            'type="range" ' +
+            'id="sm-density" ' +
+            'min="0" ' +
+            'max="2" ' +
+            'step="1" ' +
+            'value="0" ' +
+          '/>' +
+          '<div class="slider-labels">' +
+            '<span>Low</span>' +
+            '<span>Medium</span>' +
+            '<span>High</span>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="sm-subsection" id="sm-species-panel">' +
+          '<strong>Species</strong>' +
+          '<p class="sm-hint">' +
+            'Add the chemical species that reactions can use as reactants and products.' +
+          '</p>' +
+          '<div id="sm-species-list"></div>' +
+          '<div class="sm-reaction-actions">' +
+            '<button type="button" id="sm-add-species">Add Species</button>' +
+          '</div>' +
+          '<form id="sm-species-form" class="sm-custom-form" style="display:none">' +
+            '<strong id="sm-species-form-title">New species</strong>' +
+            '<div class="sm-custom-field" style="margin-top:12px">' +
+              '<label for="sm-species-name">Name</label>' +
+              '<input id="sm-species-name" type="text" placeholder="A" required />' +
+            '</div>' +
+            '<div class="sm-custom-field" style="margin-top:12px">' +
+              '<label for="sm-species-shape">Assigned shape</label>' +
+              '<select id="sm-species-shape"></select>' +
+            '</div>' +
+            '<div class="sm-custom-field" style="margin-top:12px">' +
+              '<label for="sm-species-initial-count">Initial Molecules</label>' +
+              '<input id="sm-species-initial-count" type="number" min="0" step="1" value="0" required />' +
+            '</div>' +
+            '<p id="sm-species-error"></p>' +
+            '<div class="sm-reaction-actions">' +
+              '<button type="submit" id="sm-species-submit" class="sm-small-button">Save Species</button>' +
+              '<button type="button" id="sm-cancel-species" class="sm-small-button">Cancel</button>' +
+            '</div>' +
+          '</form>' +
+        '</div>' +
+
+        '<div class="sm-subsection" id="sm-reactions-panel">' +
+          '<strong>Reactions</strong>' +
+          '<p class="sm-hint">' +
+            'Pick a reaction template, then set its species, stoichiometry, and rate constant.' +
+          '</p>' +
+          '<div id="sm-reaction-list"></div>' +
+          '<div class="sm-reaction-actions">' +
+            '<button type="button" id="sm-add-reaction">Add Reaction</button>' +
+          '</div>' +
+          '<form id="sm-reaction-form" class="sm-custom-form" style="display:none">' +
+            '<strong id="sm-reaction-form-title">New reaction</strong>' +
+            '<div id="sm-reaction-type-wrap" class="sm-custom-field" style="margin-top:12px">' +
+              '<label for="sm-reaction-type">Reaction type</label>' +
+              '<select id="sm-reaction-type"></select>' +
+            '</div>' +
+            '<div class="sm-custom-grid" style="margin-top:12px">' +
+              '<div class="sm-custom-field">' +
+                '<label for="sm-reaction-name">Name</label>' +
+                '<input id="sm-reaction-name" type="text" placeholder="r1" required />' +
+              '</div>' +
+              '<div class="sm-custom-field">' +
+                '<label for="sm-reaction-rate">Rate constant</label>' +
+                '<input id="sm-reaction-rate" type="number" min="0" step="0.01" value="1" required />' +
+              '</div>' +
+            '</div>' +
+            '<div class="sm-stoich-grid">' +
+              '<div class="sm-stoich-side">' +
+                '<label>Reactants</label>' +
+                '<div class="sm-stoich-heading"><span>Species</span><span>Stoichiometry</span><span></span></div>' +
+                '<div id="sm-reactant-rows"></div>' +
+                '<button type="button" class="sm-small-button" data-add-term="reactant">Add reactant</button>' +
+              '</div>' +
+              '<div class="sm-stoich-side">' +
+                '<label>Products</label>' +
+                '<div class="sm-stoich-heading"><span>Species</span><span>Stoichiometry</span><span></span></div>' +
+                '<div id="sm-product-rows"></div>' +
+                '<button type="button" class="sm-small-button" data-add-term="product">Add product</button>' +
+              '</div>' +
+            '</div>' +
+            '<p id="sm-reaction-error"></p>' +
+            '<div class="sm-reaction-actions">' +
+              '<button type="submit" id="sm-reaction-submit" class="sm-small-button">Save Reaction</button>' +
+              '<button type="button" id="sm-cancel-reaction" class="sm-small-button">Cancel</button>' +
+            '</div>' +
+          '</form>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="sm-panel sm-panel-plot">' +
+        '<strong class="sm-panel-title">Model Preview</strong>' +
+        '<div id="sm-domain-plot"></div>' +
+        '<p id="sm-meta"></p>' +
       '</div>' +
 
       '<div class="sm-panel" id="sm-timespan-panel">' +
         '<label for="sm-end-sim"><strong>Simulation End Time</strong></label>' +
         '<p class="sm-hint">' +
-          'How long the simulated clock runs. ' +
+          'How long the simulated clock runs. Enter any positive number (for example 20, 100, or 1000).' +
         '</p>' +
-        '<select id="sm-end-sim"></select>' +
+        '<input id="sm-end-sim" type="number" min="0.000001" step="any" value="20" required />' +
       '</div>' +
 
-      '<div class="sm-panel" id="sm-shapes-panel">' +
-        '<strong>Shapes</strong>' +
-        '<p class="sm-hint">' +
-          'Name concentric spherical regions (for example Cytoplasm outside and Nucleus inside). ' +
-          'The largest radius is filled as the outer domain; smaller radii re-tag nested regions. ' +
-          'Assign species to a shape below.' +
-        '</p>' +
-        '<div id="sm-shape-list"></div>' +
-        '<div class="sm-reaction-actions">' +
-          '<button type="button" id="sm-add-shape">Add Shape</button>' +
-        '</div>' +
-        '<form id="sm-shape-form" class="sm-custom-form" style="display:none">' +
-          '<strong id="sm-shape-form-title">New shape</strong>' +
-          '<div class="sm-custom-grid" style="margin-top:12px">' +
-            '<div class="sm-custom-field">' +
-              '<label for="sm-shape-name">Name</label>' +
-              '<input id="sm-shape-name" type="text" placeholder="Nucleus" required />' +
-            '</div>' +
-            '<div class="sm-custom-field">' +
-              '<label for="sm-shape-radius">Radius</label>' +
-              '<select id="sm-shape-radius"></select>' +
-            '</div>' +
-          '</div>' +
-          '<p id="sm-shape-error"></p>' +
-          '<div class="sm-reaction-actions">' +
-            '<button type="submit" id="sm-shape-submit" class="sm-small-button">Save Shape</button>' +
-            '<button type="button" id="sm-cancel-shape" class="sm-small-button">Cancel</button>' +
-          '</div>' +
-        '</form>' +
-      '</div>' +
-
-      '<div class="sm-panel" id="sm-species-panel">' +
-        '<strong>Species</strong>' +
-        '<p class="sm-hint">' +
-          'Add the chemical species that reactions can use as reactants and products.' +
-        '</p>' +
-        '<div id="sm-species-list"></div>' +
-        '<div class="sm-reaction-actions">' +
-          '<button type="button" id="sm-add-species">Add Species</button>' +
-        '</div>' +
-        '<form id="sm-species-form" class="sm-custom-form" style="display:none">' +
-          '<strong id="sm-species-form-title">New species</strong>' +
-          '<div class="sm-custom-field" style="margin-top:12px">' +
-            '<label for="sm-species-name">Name</label>' +
-            '<input id="sm-species-name" type="text" placeholder="A" required />' +
-          '</div>' +
-          '<div class="sm-custom-field" style="margin-top:12px">' +
-            '<label for="sm-species-shape">Assigned shape</label>' +
-            '<select id="sm-species-shape"></select>' +
-          '</div>' +
-          '<div class="sm-custom-field" style="margin-top:12px">' +
-            '<label for="sm-species-initial-count">Initial particles (before reaction)</label>' +
-            '<select id="sm-species-initial-count"></select>' +
-          '</div>' +
-          '<p id="sm-species-error"></p>' +
-          '<div class="sm-reaction-actions">' +
-            '<button type="submit" id="sm-species-submit" class="sm-small-button">Save Species</button>' +
-            '<button type="button" id="sm-cancel-species" class="sm-small-button">Cancel</button>' +
-          '</div>' +
-        '</form>' +
-      '</div>' +
-
-      '<div class="sm-panel" id="sm-reactions-panel">' +
-        '<strong>Reactions</strong>' +
-        '<p class="sm-hint">' +
-          'Pick a reaction template, then set its species, stoichiometry, and rate constant.' +
-        '</p>' +
-        '<div id="sm-reaction-list"></div>' +
-        '<div class="sm-reaction-actions">' +
-          '<button type="button" id="sm-add-reaction">Add Reaction</button>' +
-        '</div>' +
-        '<form id="sm-reaction-form" class="sm-custom-form" style="display:none">' +
-          '<strong id="sm-reaction-form-title">New reaction</strong>' +
-          '<div id="sm-reaction-type-wrap" class="sm-custom-field" style="margin-top:12px">' +
-            '<label for="sm-reaction-type">Reaction type</label>' +
-            '<select id="sm-reaction-type"></select>' +
-          '</div>' +
-          '<div class="sm-custom-grid" style="margin-top:12px">' +
-            '<div class="sm-custom-field">' +
-              '<label for="sm-reaction-name">Name</label>' +
-              '<input id="sm-reaction-name" type="text" placeholder="r1" required />' +
-            '</div>' +
-            '<div class="sm-custom-field">' +
-              '<label for="sm-reaction-rate">Rate constant</label>' +
-              '<input id="sm-reaction-rate" type="number" min="0" step="any" value="1" required />' +
-            '</div>' +
-          '</div>' +
-          '<div class="sm-stoich-grid">' +
-            '<div class="sm-stoich-side">' +
-              '<label>Reactants</label>' +
-              '<div class="sm-stoich-heading"><span>Species</span><span>Stoichiometry</span><span></span></div>' +
-              '<div id="sm-reactant-rows"></div>' +
-              '<button type="button" class="sm-small-button" data-add-term="reactant">Add reactant</button>' +
-            '</div>' +
-            '<div class="sm-stoich-side">' +
-              '<label>Products</label>' +
-              '<div class="sm-stoich-heading"><span>Species</span><span>Stoichiometry</span><span></span></div>' +
-              '<div id="sm-product-rows"></div>' +
-              '<button type="button" class="sm-small-button" data-add-term="product">Add product</button>' +
-            '</div>' +
-          '</div>' +
-          '<p id="sm-reaction-error"></p>' +
-          '<div class="sm-reaction-actions">' +
-            '<button type="submit" id="sm-reaction-submit" class="sm-small-button">Save Reaction</button>' +
-            '<button type="button" id="sm-cancel-reaction" class="sm-small-button">Cancel</button>' +
-          '</div>' +
-        '</form>' +
-      '</div>' +
-
-      // live domain preview + simulation plot
-      '<div class="sm-panel sm-panel-plot">' +
-        '<div id="sm-domain-plot"></div>' +
-        '<p id="sm-meta"></p>' +
-        '<div id="sm-species-wrap" class="sm-species-row">' +
-          '<label for="sm-species"><strong>View Species</strong></label> ' +
-          '<select id="sm-species"></select>' +
-        '</div>' +
+      '<div class="sm-panel">' +
         '<div class="sm-actions">' +
           '<button id="sm-run" type="button">Run Simulation</button>' +
+          '<button id="sm-download-csv" type="button" disabled>Download Full CSV Results as .zip</button>' +
+          '<button id="sm-convert-notebook" type="button" disabled>Convert to Notebook</button>' +
           '<p id="sm-run-status">Idle</p>' +
+          '<p id="sm-export-status"></p>' +
         '</div>' +
-        '<h2 id="sm-plot-heading" class="sm-plot-heading">Reaction Simulation</h2>' +
+      '</div>' +
+
+      '<div class="sm-panel sm-panel-plot">' +
+        '<div id="sm-species-wrap" class="sm-species-row">' +
+        '<label for="sm-species"><strong>Simulation Type</strong></label> ' +
+          '<select id="sm-species"></select>' +
+        '</div>' +
+        '<div id="sm-plot-heading-row" class="sm-plot-heading-row">' +
+          '<h2 id="sm-plot-heading" class="sm-plot-heading">Reaction Simulation</h2>' +
+          '<button id="sm-molecule-gradient" type="button" class="sm-small-button">Molecule Gradient: Off</button>' +
+        '</div>' +
         '<div id="sm-plot"></div>' +
         '<h2 id="sm-timeseries-heading" class="sm-plot-heading">Species Over Time</h2>' +
         '<div id="sm-timeseries-plot"></div>' +
+        '<h2 id="sm-spatial-profile-heading" class="sm-plot-heading">Molecule Population Along x-axis at Time = 0</h2>' +
+        '<div id="sm-spatial-profile-plot"></div>' +
+        '<h2 id="sm-spatial-profile-mid-heading" class="sm-plot-heading">Molecule Population Along x-axis (Summarized)</h2>' +
+        '<div id="sm-spatial-profile-mid-plot"></div>' +
         '<pre id="sm-result"></pre>' +
       '</div>';
 
@@ -565,10 +681,20 @@ style.textContent =
     var saveStatusEl = document.getElementById('sm-save-status');
     var runBtnEl = document.getElementById('sm-run');
     var runStatusEl = document.getElementById('sm-run-status');
+    var downloadCsvBtnEl = document.getElementById('sm-download-csv');
+    var convertNotebookBtnEl = document.getElementById('sm-convert-notebook');
+    var exportStatusEl = document.getElementById('sm-export-status');
     var plotEl = document.getElementById('sm-plot');
+    var plotHeadingRowEl = document.getElementById('sm-plot-heading-row');
     var plotHeadingEl = document.getElementById('sm-plot-heading');
+    var moleculeGradientBtnEl = document.getElementById('sm-molecule-gradient');
+    var moleculeGradientOn = false;
     var timeseriesPlotEl = document.getElementById('sm-timeseries-plot');
     var timeseriesHeadingEl = document.getElementById('sm-timeseries-heading');
+    var spatialProfilePlotEl = document.getElementById('sm-spatial-profile-plot');
+    var spatialProfileHeadingEl = document.getElementById('sm-spatial-profile-heading');
+    var spatialProfileMidPlotEl = document.getElementById('sm-spatial-profile-mid-plot');
+    var spatialProfileMidHeadingEl = document.getElementById('sm-spatial-profile-mid-heading');
     var resultEl = document.getElementById('sm-result');
     var addReactionBtn = document.getElementById('sm-add-reaction');
     var reactionTypeEl = document.getElementById('sm-reaction-type');
@@ -594,19 +720,29 @@ style.textContent =
     var cancelSpeciesEl = document.getElementById('sm-cancel-species');
     var speciesSubmitBtn = document.getElementById('sm-species-submit');
     var speciesEl = document.getElementById('sm-species');
-    var shapesPanelEl = document.getElementById('sm-shapes-panel');
     var shapeListEl = document.getElementById('sm-shape-list');
+    var domainExampleEl = document.getElementById('sm-domain-example');
+    var arrangementEl = document.getElementById('sm-arrangement');
+    var shapeLatticeEl = document.getElementById('sm-shape-lattice');
+    var latticeStatusEl = document.getElementById('sm-lattice-status');
     var addShapeBtn = document.getElementById('sm-add-shape');
     var shapeFormEl = document.getElementById('sm-shape-form');
     var shapeFormTitleEl = document.getElementById('sm-shape-form-title');
     var shapeNameEl = document.getElementById('sm-shape-name');
     var shapeRadiusEl = document.getElementById('sm-shape-radius');
+    var shapeLengthWrapEl = document.getElementById('sm-shape-length-wrap');
+    var shapeLengthEl = document.getElementById('sm-shape-length');
+    var shapeFormulaWrapEl = document.getElementById('sm-shape-formula-wrap');
+    var shapeFormulaExampleEl = document.getElementById('sm-shape-formula-example');
+    var shapeFormulaEl = document.getElementById('sm-shape-formula');
     var shapeErrorEl = document.getElementById('sm-shape-error');
     var cancelShapeEl = document.getElementById('sm-cancel-shape');
     var shapeSubmitBtn = document.getElementById('sm-shape-submit');
+    var shapeFormulaTouched = false;
 
     var cachedFigures = null;
     var lastRunSummary = null;
+    var lastJobPath = null;
     var editorState = null;
     var structuredModel = null;
     var domainPreviewTimer = null;
@@ -617,23 +753,7 @@ style.textContent =
     var editingSpeciesId = null;
     var editingShapeId = null;
 
-    editorStateApi.END_SIM_PRESETS.forEach(function (preset) {
-      var option = document.createElement('option');
-      option.value = String(preset.value);
-      option.textContent = preset.label;
-      endSimEl.appendChild(option);
-    });
     endSimEl.value = String(editorStateApi.defaultEndSim('sphere'));
-
-    function renderSpeciesInitialCountOptions() {
-      speciesInitialCountEl.innerHTML = '';
-      editorStateApi.INITIAL_COUNT_PRESETS.forEach(function (preset) {
-        var option = document.createElement('option');
-        option.value = String(preset.value);
-        option.textContent = preset.label;
-        speciesInitialCountEl.appendChild(option);
-      });
-    }
 
     function renderShapeRadiusOptions(selectedValue) {
       shapeRadiusEl.innerHTML = '';
@@ -658,6 +778,21 @@ style.textContent =
       }
     }
 
+    function renderDomainExampleOptions() {
+      editorStateApi.DOMAIN_EXAMPLES.forEach(function (example) {
+        var option = document.createElement('option');
+        option.value = example.id;
+        option.textContent = example.label;
+        domainExampleEl.appendChild(option);
+      });
+    }
+
+    function markDomainExampleCustom() {
+      if (domainExampleEl.value) {
+        domainExampleEl.value = '';
+      }
+    }
+
     function renderReactionTypeOptions() {
       editorStateApi.REACTION_TEMPLATES.forEach(function (template) {
         var option = document.createElement('option');
@@ -667,20 +802,109 @@ style.textContent =
       });
     }
 
+    var BOTH_SPECIES_VIEW = '__both__';
+    var DIFFUSION_SIM = '__diffusion__';
+
+    function getBothSpeciesNames() {
+      return editorStateApi.listSpeciesNames(editorState).slice(0, 2);
+    }
+
+    function diffusionSpeciesNames() {
+      return editorStateApi.listSpecies(editorState).filter(function (species) {
+        return species.initialCount > 0;
+      }).map(function (species) {
+        return species.name;
+      });
+    }
+
+    function figureKeyForSelection(selected) {
+      if (selected === DIFFUSION_SIM) {
+        return diffusionSpeciesNames()[0] || '';
+      }
+      return selected;
+    }
+
     function renderSpeciesOptions() {
       var previous = speciesEl.value;
+      var names = editorStateApi.listSpeciesNames(editorState);
       speciesEl.innerHTML = '';
-      editorStateApi.listSpeciesNames(editorState).forEach(function (name) {
+      var diffusion = document.createElement('option');
+      diffusion.value = DIFFUSION_SIM;
+      diffusion.textContent = 'Diffusion';
+      speciesEl.appendChild(diffusion);
+      names.forEach(function (name) {
         var option = document.createElement('option');
         option.value = name;
-        option.textContent = name;
+        option.textContent = 'Species ' + name;
         speciesEl.appendChild(option);
       });
+      if (getSelectedShape() === 'cylinder' && names.length >= 2) {
+        var both = document.createElement('option');
+        both.value = BOTH_SPECIES_VIEW;
+        both.textContent = names[0] + ' + ' + names[1] + ' (both ends)';
+        speciesEl.appendChild(both);
+      }
       if (previous && Array.prototype.some.call(speciesEl.options, function (option) {
         return option.value === previous;
       })) {
         speciesEl.value = previous;
+      } else {
+        speciesEl.value = DIFFUSION_SIM;
       }
+    }
+
+    function syncMoleculeGradientButton(show) {
+      moleculeGradientBtnEl.textContent = moleculeGradientOn
+        ? 'Molecule Gradient: On'
+        : 'Molecule Gradient: Off';
+      if (show) {
+        moleculeGradientBtnEl.classList.add('is-visible');
+      } else {
+        moleculeGradientBtnEl.classList.remove('is-visible');
+      }
+    }
+
+    function showSelectedSpeciesFigure() {
+      if (!cachedFigures) {
+        return false;
+      }
+      var selected = speciesEl.value || DIFFUSION_SIM;
+      var figureKey = figureKeyForSelection(selected);
+      var diffusionView = selected === DIFFUSION_SIM;
+      plotHeadingEl.textContent = diffusionView
+        ? ('Diffusion of ' + figureKey)
+        : 'Reaction Simulation';
+      timeseriesHeadingEl.textContent = 'Species Over Time';
+      syncMoleculeGradientButton(diffusionView);
+      if (selected === BOTH_SPECIES_VIEW) {
+        var names = getBothSpeciesNames();
+        if (names.length < 2 || !cachedFigures[names[0]] || !cachedFigures[names[1]]) {
+          runStatusEl.textContent =
+            'Run Simulation to generate the combined both-ends view.';
+          return false;
+        }
+        renderFigure(mergeSpeciesFigures(
+          cachedFigures[names[0]],
+          cachedFigures[names[1]],
+          names[0],
+          names[1]
+        ), { combined: true });
+      } else if (cachedFigures[figureKey]) {
+        renderFigure(
+          cachedFigures[figureKey],
+          diffusionView ? { diffusion: true, gradient: moleculeGradientOn } : null
+        );
+      } else {
+        runStatusEl.textContent = 'Run Simulation to generate the ' +
+          (diffusionView ? 'Diffusion' : ('Species ' + selected)) + ' view.';
+        return false;
+      }
+      if (lastRunSummary) {
+        lastRunSummary.viewing_species = selected;
+        resultEl.style.display = 'block';
+        resultEl.textContent = JSON.stringify(lastRunSummary, null, 2);
+      }
+      return true;
     }
 
     function renderSpeciesList() {
@@ -709,7 +933,7 @@ style.textContent =
         if (item.initialCount > 0) {
           var initial = document.createElement('span');
           initial.className = 'sm-species-initial-count';
-          initial.textContent = 'initial: ' + item.initialCount;
+          initial.textContent = item.initialCount + ' molecules';
           summary.appendChild(document.createTextNode(' '));
           summary.appendChild(initial);
         }
@@ -767,6 +991,13 @@ style.textContent =
         return radius > maxRadius ? radius : maxRadius;
       }, 0);
 
+      var layoutById = {};
+      if (editorState.arrangement === 'inline') {
+        editorStateApi.layoutInlineShapes(editorState).forEach(function (item) {
+          layoutById[item.id] = item;
+        });
+      }
+
       compartments.forEach(function (compartment) {
         var row = document.createElement('div');
         row.className = 'sm-species-row-item';
@@ -783,15 +1014,24 @@ style.textContent =
           editorState,
           compartment.id
         );
-        var role = Number(compartment.radius) === outerRadius && compartments.length > 1
-          ? 'outer'
-          : compartments.length > 1
-            ? 'nested'
-            : 'domain';
+        var placed = layoutById[compartment.id];
+        var role = placed
+          ? placed.role
+          : (Number(compartment.radius) === outerRadius && compartments.length > 1
+            ? 'outer'
+            : compartments.length > 1
+              ? 'nested'
+              : 'domain');
         meta.textContent =
           'r=' + compartment.radius + ' \u00b7 ' + role + ' \u00b7 ' +
           assignedSpecies.length + ' species \u00b7 ' +
-          particles + ' particles assigned';
+          particles + ' molecules assigned';
+        if (placed && placed.lattice === 'cylinder') {
+          meta.textContent += ' \u00b7 length=' + placed.length;
+        }
+        if (!placed && compartment.formula) {
+          meta.textContent += ' \u00b7 ' + compartment.formula;
+        }
         summary.appendChild(meta);
 
         var edit = document.createElement('button');
@@ -816,12 +1056,73 @@ style.textContent =
       });
     }
 
+    function renderFormulaExampleOptions(selectedId) {
+      shapeFormulaExampleEl.innerHTML = '';
+      editorStateApi.FORMULA_EXAMPLES.forEach(function (example) {
+        var option = document.createElement('option');
+        option.value = example.id;
+        option.textContent = example.label;
+        option.selected = example.id === selectedId;
+        shapeFormulaExampleEl.appendChild(option);
+      });
+    }
+
+    function applyFormulaExample() {
+      var exampleId = shapeFormulaExampleEl.value;
+      if (exampleId === 'custom') {
+        shapeFormulaTouched = true;
+        return;
+      }
+      var radius = Number(shapeRadiusEl.value);
+      if (!Number.isFinite(radius) || radius <= 0) {
+        return;
+      }
+      shapeFormulaTouched = false;
+      shapeFormulaEl.value = editorStateApi.shapeFormulaForExample(exampleId, radius);
+    }
+
+    function syncShapeFormulaFromRadius() {
+      if (shapeFormulaTouched || shapeFormulaExampleEl.value === 'custom') {
+        return;
+      }
+      applyFormulaExample();
+    }
+
+    function syncFormulaExampleFromText() {
+      var radius = Number(shapeRadiusEl.value);
+      var match = editorStateApi.matchShapeFormulaExample(shapeFormulaEl.value, radius);
+      if (match === 'custom') {
+        shapeFormulaExampleEl.selectedIndex = -1;
+        shapeFormulaTouched = true;
+        return;
+      }
+      shapeFormulaExampleEl.value = match;
+      shapeFormulaTouched = false;
+    }
+
+    function isInlineArrangement() {
+      return editorState && editorState.arrangement === 'inline';
+    }
+
+    function syncShapeLatticeFields() {
+      var cylinderPiece = isInlineArrangement() && shapeLatticeEl.value === 'cylinder';
+      shapeLengthWrapEl.style.display = cylinderPiece ? '' : 'none';
+      shapeFormulaWrapEl.style.display = cylinderPiece ? 'none' : '';
+      shapeFormulaEl.required = !cylinderPiece;
+    }
+
     function openShapeForm() {
       editingShapeId = null;
+      shapeFormulaTouched = false;
       shapeFormTitleEl.textContent = 'New shape';
       shapeSubmitBtn.textContent = 'Save Shape';
+      shapeLatticeEl.value = isInlineArrangement() ? 'sphere' : getSelectedShape();
+      shapeLengthEl.value = '2';
       shapeNameEl.value = editorStateApi.suggestCompartmentName(editorState);
       renderShapeRadiusOptions(editorStateApi.suggestCompartmentRadius(editorState));
+      renderFormulaExampleOptions('solid');
+      syncShapeFormulaFromRadius();
+      syncShapeLatticeFields();
       shapeErrorEl.textContent = '';
       shapeFormEl.style.display = '';
       shapeNameEl.focus();
@@ -836,8 +1137,19 @@ style.textContent =
       editingShapeId = compartment.id;
       shapeFormTitleEl.textContent = 'Edit shape: ' + compartment.name;
       shapeSubmitBtn.textContent = 'Update Shape';
+      shapeLatticeEl.value = isInlineArrangement()
+        ? (compartment.lattice === 'cylinder' ? 'cylinder' : 'sphere')
+        : getSelectedShape();
+      shapeLengthEl.value = String(compartment.length || 2);
       shapeNameEl.value = compartment.name;
       renderShapeRadiusOptions(compartment.radius);
+      var radius = Number(compartment.radius) || 1;
+      var defaultFormula = editorStateApi.sphereFormula(radius);
+      shapeFormulaEl.value = compartment.formula || defaultFormula;
+      var exampleMatch = editorStateApi.matchShapeFormulaExample(shapeFormulaEl.value, radius);
+      renderFormulaExampleOptions(exampleMatch === 'custom' ? '' : exampleMatch);
+      shapeFormulaTouched = exampleMatch === 'custom';
+      syncShapeLatticeFields();
       shapeErrorEl.textContent = '';
       shapeFormEl.style.display = '';
       shapeNameEl.focus();
@@ -847,6 +1159,7 @@ style.textContent =
       shapeFormEl.style.display = 'none';
       shapeErrorEl.textContent = '';
       editingShapeId = null;
+      shapeFormulaTouched = false;
       shapeSubmitBtn.textContent = 'Save Shape';
     }
 
@@ -1080,10 +1393,20 @@ style.textContent =
       renderReactionList();
 
       var hasReactions = editorState.reactionOrder.length > 0;
-      runBtnEl.disabled = !hasReactions;
-      if (!hasReactions) {
-        runStatusEl.textContent = 'Add a reaction to run a simulation.';
-      } else if (runStatusEl.textContent === 'Add a reaction to run a simulation.') {
+      var diffusionSelected = speciesEl.value === DIFFUSION_SIM || speciesEl.value === '';
+      var diffusionReady = diffusionSpeciesNames().length > 0;
+      runBtnEl.disabled = diffusionSelected ? !diffusionReady : !hasReactions;
+      if (diffusionSelected && !diffusionReady) {
+        runStatusEl.textContent =
+          'Add a species, assign it to a shape, and set an initial particle count to run Diffusion.';
+      } else if (!diffusionSelected && !hasReactions) {
+        runStatusEl.textContent = 'Add a reaction to run a species simulation, or choose Diffusion.';
+      } else if (
+        runStatusEl.textContent === 'Add a reaction to run a simulation.' ||
+        runStatusEl.textContent === 'Add a reaction to run a species simulation, or choose Diffusion.' ||
+        runStatusEl.textContent ===
+          'Add a species, assign it to a shape, and set an initial particle count to run Diffusion.'
+      ) {
         runStatusEl.textContent = 'Idle';
       }
     }
@@ -1094,7 +1417,20 @@ style.textContent =
       var densityLevel = getDensityLevel();
 
       densityPanelEl.style.display = shape === 'cylinder' ? 'none' : '';
-      shapesPanelEl.style.display = shape === 'cylinder' ? 'none' : '';
+      if (arrangementEl && arrangementEl.value !== (editorState.arrangement || 'nested')) {
+        arrangementEl.value = editorState.arrangement === 'inline' ? 'inline' : 'nested';
+      }
+      if (latticeStatusEl) {
+        latticeStatusEl.textContent = editorState.arrangement === 'inline'
+          ? 'End to end: each shape is filled on its own and placed along X beside the previous one. ' +
+            'A half-sphere added first becomes the left cap and one added last becomes the right cap. ' +
+            'Shapes overlap by one particle spacing. Use the same radius for the caps and the cylinder.'
+          : (shape === 'cylinder'
+            ? 'Cylinder lattice. Add or edit a shape to switch back to Sphere.'
+            : 'Sphere lattice. Name concentric regions (for example Cytoplasm outside and Nucleus inside). ' +
+              'The largest radius is filled as the outer domain; smaller radii re-tag nested regions. ' +
+              'Add or edit a shape to switch the lattice to Cylinder.');
+      }
       if (String(editorState.endSim) !== endSimEl.value) {
         endSimEl.value = String(editorState.endSim);
       }
@@ -1111,29 +1447,52 @@ style.textContent =
     });
 
     endSimEl.addEventListener('change', function () {
-      editorStateApi.setEndSim(editorState, endSimEl.value);
+      try {
+        editorStateApi.setEndSim(editorState, endSimEl.value);
+        endSimEl.value = String(editorState.endSim);
+        markUnsaved();
+        draw();
+      } catch (err) {
+        endSimEl.value = String(editorState.endSim);
+        runStatusEl.textContent = err.message;
+      }
+    });
+
+    shapeLatticeEl.addEventListener('change', function () {
+      if (isInlineArrangement()) {
+        syncShapeLatticeFields();
+        return;
+      }
+      applyDomainLattice(shapeLatticeEl.value);
+    });
+
+    arrangementEl.addEventListener('change', function () {
+      markDomainExampleCustom();
+      editorStateApi.setArrangement(editorState, arrangementEl.value);
+      syncShapeLatticeFields();
+      cachedFigures = null;
+      clearSpatialProfileFigure();
       markUnsaved();
       draw();
     });
 
-    Array.prototype.forEach.call(
-      document.querySelectorAll('input[name="sm-shape"]'),
-      function (input) {
-        input.addEventListener('change', function () {
-          var shape = getSelectedShape();
-          if (shape === 'cylinder' && Number(editorState.endSim) === 20) {
-            editorStateApi.setEndSim(editorState, 100);
-            endSimEl.value = '100';
-          } else if (shape === 'sphere' && Number(editorState.endSim) === 100) {
-            editorStateApi.setEndSim(editorState, 20);
-            endSimEl.value = '20';
-          }
-          cachedFigures = null;
-          markUnsaved();
-          draw();
-        });
+    domainExampleEl.addEventListener('change', function () {
+      if (!domainExampleEl.value) {
+        return;
       }
-    );
+      try {
+        closeShapeForm();
+        editorStateApi.applyDomainExample(editorState, domainExampleEl.value);
+        cachedFigures = null;
+        clearSpatialProfileFigure();
+        markUnsaved();
+        draw();
+      } catch (err) {
+        domainExampleEl.value = '';
+        shapeErrorEl.textContent = err.message;
+        shapeFormEl.style.display = '';
+      }
+    });
 
     [modelNameEl, modelFolderEl].forEach(function (input) {
       input.addEventListener('input', markUnsaved);
@@ -1156,6 +1515,9 @@ style.textContent =
     cancelSpeciesEl.addEventListener('click', closeSpeciesForm);
     addShapeBtn.addEventListener('click', openShapeForm);
     cancelShapeEl.addEventListener('click', closeShapeForm);
+    shapeRadiusEl.addEventListener('change', syncShapeFormulaFromRadius);
+    shapeFormulaExampleEl.addEventListener('change', applyFormulaExample);
+    shapeFormulaEl.addEventListener('input', syncFormulaExampleFromText);
 
     shapeListEl.addEventListener('click', function (event) {
       var editId = event.target.getAttribute('data-edit-shape');
@@ -1172,6 +1534,7 @@ style.textContent =
       }
       try {
         editorStateApi.removeCompartment(editorState, shapeId);
+        markDomainExampleCustom();
         markUnsaved();
         draw();
       } catch (err) {
@@ -1183,9 +1546,17 @@ style.textContent =
     shapeFormEl.addEventListener('submit', function (event) {
       event.preventDefault();
       try {
+        if (!isInlineArrangement()) {
+          applyDomainLattice(shapeLatticeEl.value);
+        }
         var shapePayload = {
           name: shapeNameEl.value,
-          radius: shapeRadiusEl.value
+          radius: shapeRadiusEl.value,
+          formula: isInlineArrangement() && shapeLatticeEl.value === 'cylinder'
+            ? editorStateApi.sphereFormula(Number(shapeRadiusEl.value) || 1)
+            : shapeFormulaEl.value,
+          lattice: isInlineArrangement() ? shapeLatticeEl.value : 'sphere',
+          length: shapeLengthEl.value
         };
         if (editingShapeId !== null) {
           editorStateApi.updateCompartment(editorState, editingShapeId, shapePayload);
@@ -1193,6 +1564,7 @@ style.textContent =
           editorStateApi.addCompartment(editorState, shapePayload);
         }
         closeShapeForm();
+        markDomainExampleCustom();
         markUnsaved();
         draw();
       } catch (err) {
@@ -1317,20 +1689,8 @@ style.textContent =
     });
 
     speciesEl.addEventListener('change', function () {
-      if (!cachedFigures) {
-        return;
-      }
-      var selected = speciesEl.value || 'A';
-      if (cachedFigures[selected]) {
-        renderFigure(cachedFigures[selected]);
-        if (lastRunSummary) {
-          lastRunSummary.viewing_species = selected;
-          resultEl.style.display = 'block';
-          resultEl.textContent = JSON.stringify(lastRunSummary, null, 2);
-        }
-      } else {
-        runStatusEl.textContent = 'Run Simulation to generate the ' + selected + ' view.';
-      }
+      syncReactionUi();
+      showSelectedSpeciesFigure();
     });
 
     // slider value -> density level
@@ -1345,8 +1705,26 @@ style.textContent =
     }
 
     function getSelectedShape() {
-      var checked = document.querySelector('input[name="sm-shape"]:checked');
-      return checked ? checked.value : 'sphere';
+      return editorState && editorState.shape === 'cylinder' ? 'cylinder' : 'sphere';
+    }
+
+    function applyDomainLattice(shape) {
+      var nextShape = shape === 'cylinder' ? 'cylinder' : 'sphere';
+      if (nextShape === getSelectedShape()) {
+        return;
+      }
+      if (nextShape === 'cylinder' && Number(editorState.endSim) === 20) {
+        editorStateApi.setEndSim(editorState, 100);
+        endSimEl.value = '100';
+      } else if (nextShape === 'sphere' && Number(editorState.endSim) === 100) {
+        editorStateApi.setEndSim(editorState, 20);
+        endSimEl.value = '20';
+      }
+      editorStateApi.setShape(editorState, nextShape);
+      cachedFigures = null;
+      clearSpatialProfileFigure();
+      markUnsaved();
+      draw();
     }
 
     function formatShapeLabel(shape) {
@@ -1458,7 +1836,7 @@ style.textContent =
           return;
         }
         if (!response.ok || !data.fig) {
-          throw new Error(data.Message || data.message || 'Failed to generate domain preview.');
+          throw new Error(data.Message || data.message || 'Failed to generate model preview.');
         }
 
         renderDomainFigure(data.fig);
@@ -1479,7 +1857,7 @@ style.textContent =
         }
         Plotly.purge(domainPlotEl);
         domainPlotEl.innerHTML = '';
-        metaEl.textContent = 'Domain preview failed: ' + err.message;
+        metaEl.textContent = 'Model preview failed: ' + err.message;
       }
     }
 
@@ -1487,7 +1865,7 @@ style.textContent =
       if (!resizeBound) {
         resizeBound = true;
         window.addEventListener('resize', function () {
-          [domainPlotEl, plotEl, timeseriesPlotEl].forEach(function (element) {
+          [domainPlotEl, plotEl, timeseriesPlotEl, spatialProfilePlotEl, spatialProfileMidPlotEl].forEach(function (element) {
             if (element && element.classList && element.classList.contains('js-plotly-plot')) {
               Plotly.Plots.resize(element);
             }
@@ -1516,17 +1894,30 @@ style.textContent =
       ensureResizeListener();
     }
 
-    function renderFigure(figure) {
+    function renderFigure(figure, options) {
       if (!figure || !figure.data || !figure.layout) {
-        plotHeadingEl.classList.remove('is-visible');
+        plotHeadingRowEl.classList.remove('is-visible');
         plotEl.style.display = 'none';
         return;
       }
-      plotHeadingEl.classList.add('is-visible');
+      plotHeadingRowEl.classList.add('is-visible');
       plotEl.style.display = 'block';
       Plotly.purge(plotEl);
       plotEl.innerHTML = '';
-      var tuned = tuneSpeciesPlotColors(figure);
+      var tuned;
+      if (options && options.combined) {
+        tuned = figure;
+      } else if (options && options.diffusion && options.gradient) {
+        tuned = tuneDiffusionPlotColors(figure);
+      } else if (options && options.diffusion) {
+        // Dark pink = empty, bright light pink = containing (same endpoints as the gradient).
+        tuned = tuneSpeciesPlotColors(figure, {
+          empty: '#9a18b0',
+          filled: '#ffc2f0'
+        });
+      } else {
+        tuned = tuneSpeciesPlotColors(figure);
+      }
       var fig = {
         data: tuned.data,
         layout: tunePlotlyLayout(tuned.layout),
@@ -1542,20 +1933,267 @@ style.textContent =
       ensureResizeListener();
     }
 
+    function mergeSpeciesFigures(figureA, figureB, nameA, nameB) {
+      var tunedA = tuneSpeciesPlotColors(figureA, {
+        empty: '#fec3fe',
+        filled: '#dd2bfd',
+        label: nameA
+      });
+      var tunedB = tuneSpeciesPlotColors(figureB, {
+        empty: '#c6dbef',
+        filled: '#2171b5',
+        label: nameB
+      });
+
+      var EMPTY_COLOR = '#f2d7ee';
+      var COLOR_A = '#dd2bfd';
+      var COLOR_B = '#2171b5';
+      var COLOR_BOTH = '#7a3db8';
+
+      function asColorList(value, length) {
+        if (Array.isArray(value)) {
+          return value;
+        }
+        var list = [];
+        var index;
+        for (index = 0; index < length; index += 1) {
+          list.push(value);
+        }
+        return list;
+      }
+
+      function occupancyColors(colorsA, colorsB, pointCount) {
+        var listA = asColorList(colorsA, pointCount);
+        var listB = asColorList(colorsB, pointCount);
+        var mergedColors = [];
+        var index;
+        for (index = 0; index < pointCount; index += 1) {
+          var hasA = Number(listA[index]) > 0;
+          var hasB = Number(listB[index]) > 0;
+          if (hasA && hasB) {
+            mergedColors.push(COLOR_BOTH);
+          } else if (hasA) {
+            mergedColors.push(COLOR_A);
+          } else if (hasB) {
+            mergedColors.push(COLOR_B);
+          } else {
+            mergedColors.push(EMPTY_COLOR);
+          }
+        }
+        return mergedColors;
+      }
+
+      function legendTrace(color, label) {
+        return {
+          type: 'scatter3d',
+          mode: 'markers',
+          name: label,
+          x: [null],
+          y: [null],
+          z: [null],
+          marker: { size: 8, color: color },
+          showlegend: true,
+          hoverinfo: 'skip'
+        };
+      }
+
+      function combineTracePair(traceA, traceB) {
+        var base = JSON.parse(JSON.stringify(traceA || {}));
+        var pointCount = Array.isArray(base.x) ? base.x.length : 0;
+        if (!base.marker) {
+          base.marker = {};
+        }
+        var colorsA = traceA && traceA.marker ? traceA.marker.color : 0;
+        var colorsB = traceB && traceB.marker ? traceB.marker.color : 0;
+        base.marker.color = occupancyColors(colorsA, colorsB, pointCount);
+        base.marker.size = base.marker.size || 5;
+        delete base.marker.colorscale;
+        delete base.marker.colorbar;
+        delete base.marker.cmin;
+        delete base.marker.cmax;
+        delete base.marker.opacity;
+        base.name = nameA + ' + ' + nameB;
+        base.showlegend = false;
+        base.type = base.type || 'scatter3d';
+        base.mode = base.mode || 'markers';
+        return base;
+      }
+
+      function buildFrameData(tracesA, tracesB) {
+        var primaryA = (tracesA || [])[0];
+        var primaryB = (tracesB || [])[0];
+        if (!primaryA) {
+          return [
+            legendTrace(EMPTY_COLOR, 'unfilled'),
+            legendTrace(COLOR_A, nameA),
+            legendTrace(COLOR_B, nameB)
+          ];
+        }
+        return [
+          combineTracePair(primaryA, primaryB),
+          legendTrace(EMPTY_COLOR, 'unfilled'),
+          legendTrace(COLOR_A, nameA),
+          legendTrace(COLOR_B, nameB)
+        ];
+      }
+
+      var merged = JSON.parse(JSON.stringify(tunedA));
+      merged.data = buildFrameData(tunedA.data, tunedB.data);
+      var framesA = tunedA.frames || [];
+      var framesB = tunedB.frames || [];
+      var frameCount = Math.min(framesA.length, framesB.length);
+      merged.frames = [];
+      var index;
+      for (index = 0; index < frameCount; index += 1) {
+        merged.frames.push({
+          name: framesA[index].name,
+          data: buildFrameData(framesA[index].data, framesB[index].data)
+        });
+      }
+      if (merged.layout) {
+        merged.layout.showlegend = true;
+      }
+      return merged;
+    }
+
+    // Continuous pink scale by molecule count. Plotly colorscale stops are always
+    // fractions 0–1 of the mapped range (not molecule counts). Counts are shown
+    // on the colorbar; colors use a log stretch so hundreds/thousands stay distinct.
+    function tuneDiffusionPlotColors(figure) {
+      var fig = JSON.parse(JSON.stringify(figure));
+      var COLORSCALE = [
+        [0, '#7f1492'],
+        [0.25, '#d358e8'],
+        [0.5, '#e9acf4'],
+        [0.75, '#fcf4fe'],
+        [1, '#fcf3fd']
+      ];
+
+      function maxColorValue(colorValues) {
+        if (!Array.isArray(colorValues)) {
+          var single = Number(colorValues);
+          return Number.isFinite(single) ? single : 0;
+        }
+        var max = 0;
+        colorValues.forEach(function (value) {
+          var number = Number(value);
+          if (Number.isFinite(number) && number > max) {
+            max = number;
+          }
+        });
+        return max;
+      }
+
+      function log1p(value) {
+        return Math.log(1 + Math.max(0, Number(value) || 0));
+      }
+
+      function moleculeColorbarTicks(maxCount) {
+        var roundedMax = Math.max(1, Math.round(maxCount));
+        var candidates;
+        if (roundedMax >= 1000) {
+          candidates = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
+        } else if (roundedMax >= 100) {
+          candidates = [10, 25, 50, 100, 250, 500, 750];
+        } else if (roundedMax >= 20) {
+          candidates = [5, 10, 15, 20, 25, 50, 75];
+        } else {
+          candidates = [];
+          var step;
+          for (step = 1; step < roundedMax; step += 1) {
+            candidates.push(step);
+          }
+        }
+        var ticks = [0];
+        candidates.forEach(function (value) {
+          if (value > 0 && value < roundedMax) {
+            ticks.push(value);
+          }
+        });
+        if (ticks[ticks.length - 1] !== roundedMax) {
+          ticks.push(roundedMax);
+        }
+        if (ticks.length <= 6) {
+          return ticks;
+        }
+        var kept = [ticks[0]];
+        var stride = Math.ceil((ticks.length - 2) / 4);
+        var index;
+        for (index = stride; index < ticks.length - 1; index += stride) {
+          kept.push(ticks[index]);
+        }
+        kept.push(ticks[ticks.length - 1]);
+        return kept;
+      }
+
+      function remapColorsToLog(colorValues) {
+        if (!Array.isArray(colorValues)) {
+          return log1p(colorValues);
+        }
+        return colorValues.map(log1p);
+      }
+
+      var cmax = 0;
+      function scanTraces(traces) {
+        (traces || []).forEach(function (trace) {
+          if (!trace || !trace.marker) {
+            return;
+          }
+          cmax = Math.max(cmax, maxColorValue(trace.marker.color));
+        });
+      }
+      scanTraces(fig.data);
+      (fig.frames || []).forEach(function (frame) {
+        scanTraces(frame.data);
+      });
+      if (cmax <= 0) {
+        cmax = 1;
+      }
+
+      var logMax = log1p(cmax);
+      var tickMolecules = moleculeColorbarTicks(cmax);
+      var tickVals = tickMolecules.map(log1p);
+      var tickText = tickMolecules.map(String);
+
+      function applyScale(traces) {
+        (traces || []).forEach(function (trace) {
+          if (!trace || !trace.marker) {
+            return;
+          }
+          if (trace.marker.colorscale == null && !Array.isArray(trace.marker.color)) {
+            return;
+          }
+          trace.marker.color = remapColorsToLog(trace.marker.color);
+          trace.marker.colorscale = COLORSCALE;
+          trace.marker.cmin = 0;
+          trace.marker.cmax = logMax;
+          trace.marker.reversescale = false;
+          if (!trace.marker.colorbar) {
+            trace.marker.colorbar = {};
+          }
+          trace.marker.colorbar.title = 'Molecules';
+          trace.marker.colorbar.thickness = 20;
+          trace.marker.colorbar.tickmode = 'array';
+          trace.marker.colorbar.tickvals = tickVals;
+          trace.marker.colorbar.ticktext = tickText;
+        });
+      }
+
+      applyScale(fig.data);
+      (fig.frames || []).forEach(function (frame) {
+        applyScale(frame.data);
+      });
+      return fig;
+    }
+
     // SpatialPy defaults to continuous Plotly3 (blue → magenta → pale pink).
     // Match the old creator's empty-vs-filled look with two discrete pinks only.
-    function tuneSpeciesPlotColors(figure) {
+    function tuneSpeciesPlotColors(figure, palette) {
       var fig = JSON.parse(JSON.stringify(figure));
+      var colors = palette || {};
 
-      // Previous continuous Plotly3 mapping (kept for reference):
-      // var THREE_COLOR_SCALE = [
-      //   [0, '#0508b8'], // dark blue
-      //   [0.5, '#dd2bfd'], // magenta
-      //   [1, '#fec3fe'] // pale pink
-      // ];
-
-      var EMPTY_COLOR = '#fec3fe'; // Plotly3 pale pink = not filled
-      var FILLED_COLOR = '#dd2bfd'; // Plotly3 magenta = filled
+      var EMPTY_COLOR = colors.empty || '#fec3fe'; // Plotly3 pale pink = not filled
+      var FILLED_COLOR = colors.filled || '#dd2bfd'; // Plotly3 magenta = filled
 
       // Continuous scale for the side colorbar gradient. Particle counts are
       // binarized to 0/1 below, so markers still only use the two endpoints.
@@ -1564,11 +2202,11 @@ style.textContent =
         [1, FILLED_COLOR]
       ];
 
-      function binarizeColors(colors) {
-        if (!Array.isArray(colors)) {
-          return Number(colors) > 0 ? 1 : 0;
+      function binarizeColors(colorValues) {
+        if (!Array.isArray(colorValues)) {
+          return Number(colorValues) > 0 ? 1 : 0;
         }
-        return colors.map(function (value) {
+        return colorValues.map(function (value) {
           return Number(value) > 0 ? 1 : 0;
         });
       }
@@ -1586,7 +2224,19 @@ style.textContent =
           trace.marker.cmin = 0;
           trace.marker.cmax = 1;
           trace.marker.reversescale = false;
-          // Keep SpatialPy's original colorbar chrome (title/ticks/style).
+          if (colors.label) {
+            trace.name = colors.label;
+            if (!trace.marker.colorbar) {
+              trace.marker.colorbar = {};
+            }
+            trace.marker.colorbar.title = colors.label;
+          }
+          if (colors.colorbarX != null) {
+            if (!trace.marker.colorbar) {
+              trace.marker.colorbar = {};
+            }
+            trace.marker.colorbar.x = colors.colorbarX;
+          }
         });
       }
 
@@ -1629,6 +2279,86 @@ style.textContent =
       ensureResizeListener();
     }
 
+    function clearOneSpatialProfile(headingEl, plotEl) {
+      headingEl.classList.remove('is-visible');
+      plotEl.style.display = 'none';
+      if (typeof Plotly !== 'undefined' && Plotly.purge) {
+        Plotly.purge(plotEl);
+      }
+      plotEl.innerHTML = '';
+    }
+
+    function clearSpatialProfileFigure() {
+      clearOneSpatialProfile(spatialProfileHeadingEl, spatialProfilePlotEl);
+      clearOneSpatialProfile(spatialProfileMidHeadingEl, spatialProfileMidPlotEl);
+    }
+
+    function paintSpatialProfilePlot(figure, headingEl, plotEl, fallbackTitle) {
+      if (!figure || !figure.data || !figure.layout || !figure.data.length) {
+        clearOneSpatialProfile(headingEl, plotEl);
+        return false;
+      }
+      var profileTitle = figure.layout && figure.layout.title;
+      if (profileTitle && typeof profileTitle === 'object') {
+        profileTitle = profileTitle.text;
+      }
+      headingEl.textContent = profileTitle || fallbackTitle;
+      headingEl.classList.add('is-visible');
+      plotEl.style.display = 'block';
+      Plotly.purge(plotEl);
+      plotEl.innerHTML = '';
+      var layout = tunePlotlyLayout(figure.layout);
+      layout.title = null;
+      layout.margin = layout.margin || {};
+      layout.margin.t = Math.max(layout.margin.t || 0, 48);
+      layout.margin.b = Math.max(layout.margin.b || 0, 56);
+      layout.margin.l = Math.max(layout.margin.l || 0, 56);
+      layout.margin.r = Math.max(layout.margin.r || 0, 24);
+      var fig = {
+        data: figure.data,
+        layout: layout,
+        config: Object.assign(
+          { responsive: true, scrollZoom: true, displayModeBar: true },
+          figure.config || {}
+        )
+      };
+      Plotly.newPlot(plotEl, fig).then(function (gd) {
+        Plotly.Plots.resize(gd);
+      });
+      return true;
+    }
+
+    function renderSpatialProfileFigure(figure, mode, midFigure) {
+      var alongX = mode === 'x';
+      if (!alongX && getSelectedShape() !== 'cylinder') {
+        clearSpatialProfileFigure();
+        return;
+      }
+      if (alongX) {
+        paintSpatialProfilePlot(
+          figure,
+          spatialProfileHeadingEl,
+          spatialProfilePlotEl,
+          'Molecule Population Along x-axis at Time = 0'
+        );
+        paintSpatialProfilePlot(
+          midFigure,
+          spatialProfileMidHeadingEl,
+          spatialProfileMidPlotEl,
+          'Molecule Population Along x-axis (Summarized)'
+        );
+      } else {
+        clearOneSpatialProfile(spatialProfileMidHeadingEl, spatialProfileMidPlotEl);
+        paintSpatialProfilePlot(
+          figure,
+          spatialProfileHeadingEl,
+          spatialProfilePlotEl,
+          'Population Along Cylinder'
+        );
+      }
+      ensureResizeListener();
+    }
+
     function tunePlotlyLayout(layout) {
       var L = layout && typeof layout === 'object'
         ? JSON.parse(JSON.stringify(layout))
@@ -1654,12 +2384,25 @@ style.textContent =
       if (typeof L.margin.r === 'number' && L.margin.r > 160) {
         L.margin.r = 120;
       }
-      if (typeof L.margin.t !== 'number' || L.margin.t > 36) {
-        L.margin.t = Math.min(L.margin.t || 0, 28);
-      }
+      // Leave room for Plotly's top-right mode bar.
+      L.margin.t = Math.max(typeof L.margin.t === 'number' ? L.margin.t : 0, 52);
       // Keep bottom margin for animation slider / updatemenus
       if (typeof L.margin.b !== 'number' || L.margin.b < 72) {
         L.margin.b = Math.max(L.margin.b || 0, 88);
+      }
+      // Default / top-right legends sit under the mode bar; move them to the left.
+      var legend = L.legend && typeof L.legend === 'object' ? L.legend : {};
+      var legendX = legend.x == null ? 1 : Number(legend.x);
+      var legendY = legend.y == null ? 1 : Number(legend.y);
+      if ((!Number.isFinite(legendX) || legendX > 0.7) &&
+          (!Number.isFinite(legendY) || legendY > 0.85)) {
+        L.legend = Object.assign({}, legend, {
+          x: 0,
+          y: 1,
+          xanchor: 'left',
+          yanchor: 'top',
+          bgcolor: legend.bgcolor || 'rgba(255,255,255,0.85)'
+        });
       }
       if (L.scene && typeof L.scene === 'object') {
         L.scene = Object.assign({}, L.scene, {
@@ -1669,11 +2412,73 @@ style.textContent =
       return L;
     }
 
+    function getBasePath() {
+      try {
+        var base = document.querySelector('base');
+        return base && base.getAttribute('href') ? base.getAttribute('href') : '/';
+      } catch (err) {
+        return '/';
+      }
+    }
+
+    function joinPath() {
+      var parts = Array.prototype.slice.call(arguments).filter(Boolean);
+      return parts.join('/').replace(/\/{2,}/g, '/').replace(':/', '://');
+    }
+
+    function setExportEnabled(enabled) {
+      downloadCsvBtnEl.disabled = !enabled;
+      convertNotebookBtnEl.disabled = !enabled;
+      if (!enabled) {
+        exportStatusEl.textContent = '';
+      }
+    }
+
     function setRunState(isRunning, statusText) {
       runBtnEl.disabled = isRunning;
       saveBtnEl.disabled = isRunning;
       runBtnEl.textContent = isRunning ? 'Running...' : 'Run Simulation';
       runStatusEl.textContent = statusText;
+      if (isRunning) {
+        setExportEnabled(false);
+      }
+    }
+
+    function downloadFullCSV() {
+      if (!lastJobPath) {
+        exportStatusEl.textContent = 'Run a simulation before downloading CSV results.';
+        return;
+      }
+      var endpoint = joinPath(getBasePath(), 'model_builder/api/job/csv') +
+        '?path=' + encodeURIComponent(lastJobPath) + '&type=full';
+      exportStatusEl.textContent = 'Downloading CSV zip...';
+      window.open(endpoint, '_blank');
+    }
+
+    async function convertToNotebook() {
+      if (!lastJobPath) {
+        exportStatusEl.textContent = 'Run a simulation before converting to a notebook.';
+        return;
+      }
+      convertNotebookBtnEl.disabled = true;
+      exportStatusEl.textContent = 'Creating notebook...';
+      try {
+        var endpoint = joinPath(getBasePath(), 'model_builder/api/workflow/notebook') +
+          '?path=' + encodeURIComponent(lastJobPath) + '&type=spatial';
+        var response = await fetch(endpoint);
+        var data = await readJSONResponse(response);
+        var filePath = data.FilePath || data.file_path;
+        if (!filePath) {
+          throw new Error(data.Message || data.message || 'Notebook creation did not return a file path.');
+        }
+        exportStatusEl.textContent = 'Opening notebook...';
+        window.open(joinPath(getBasePath(), 'notebooks', filePath), '_blank');
+        exportStatusEl.textContent = 'Notebook ready.';
+      } catch (err) {
+        exportStatusEl.textContent = 'Notebook conversion failed: ' + err.message;
+      } finally {
+        setExportEnabled(!!lastJobPath);
+      }
     }
 
     function wait(milliseconds) {
@@ -1712,45 +2517,96 @@ style.textContent =
     }
 
     async function runSimulation() {
-      if (editorState.reactionOrder.length === 0) {
-        runStatusEl.textContent = 'Add a reaction to run a simulation.';
+      var diffusionRun = !speciesEl.value || speciesEl.value === DIFFUSION_SIM;
+      if (diffusionRun && diffusionSpeciesNames().length === 0) {
+        runStatusEl.textContent =
+          'Add a species, assign it to a shape, and set an initial particle count to run Diffusion.';
+        return;
+      }
+      if (!diffusionRun && editorState.reactionOrder.length === 0) {
+        runStatusEl.textContent = 'Add a reaction to run a species simulation, or choose Diffusion.';
         return;
       }
 
       var densityLevel = getDensityLevel();
-      var model = refreshStructuredModel();
-      var selected = speciesEl.value || 'A';
+      refreshStructuredModel();
+      var model = diffusionRun
+        ? editorStateApi.diffusionPreviewModel(editorState)
+        : structuredModel;
+      var selected = diffusionRun ? DIFFUSION_SIM : (speciesEl.value || 'A');
       var startedAt = Date.now();
       setRunState(true, 'Saving and running the structured spatial model...');
       speciesEl.disabled = true;
-      plotHeadingEl.classList.remove('is-visible');
+      plotHeadingRowEl.classList.remove('is-visible');
+      moleculeGradientBtnEl.classList.remove('is-visible');
       timeseriesHeadingEl.classList.remove('is-visible');
+      clearSpatialProfileFigure();
       plotEl.style.display = 'none';
       timeseriesPlotEl.style.display = 'none';
       resultEl.style.display = 'none';
       resultEl.textContent = '';
       cachedFigures = null;
       lastRunSummary = null;
+      lastJobPath = null;
+      setExportEnabled(false);
+      exportStatusEl.textContent = '';
 
       try {
         var activeReactionCount = model.reactions.length;
         var path = await saveStructuredModel(model);
-        runStatusEl.textContent = 'Running ' + path + ' for all species...';
+        runStatusEl.textContent = diffusionRun
+          ? 'Running diffusion across the domain...'
+          : ('Running ' + path + ' for all species...');
         var results = await runStructuredSimulation(path, '__all_species__');
         var preview = results.results || {};
         cachedFigures = preview.figures || {};
+        var figureKey = figureKeyForSelection(selected);
         if (Object.keys(cachedFigures).length === 0 && preview.data && preview.layout) {
-          cachedFigures[selected] = preview;
+          cachedFigures[figureKey] = preview;
         }
-        if (!cachedFigures[selected]) {
-          selected = Object.keys(cachedFigures)[0];
-          speciesEl.value = selected;
+        if (selected === BOTH_SPECIES_VIEW) {
+          var bothNames = getBothSpeciesNames();
+          if (bothNames.length < 2 || !cachedFigures[bothNames[0]] || !cachedFigures[bothNames[1]]) {
+            selected = Object.keys(cachedFigures)[0];
+            speciesEl.value = selected;
+          }
+        } else if (!cachedFigures[figureKey]) {
+          if (!diffusionRun) {
+            selected = Object.keys(cachedFigures)[0];
+            speciesEl.value = selected;
+            figureKey = figureKeyForSelection(selected);
+          }
         }
-        if (!selected || !cachedFigures[selected]) {
+        if (!selected || (selected !== BOTH_SPECIES_VIEW && !cachedFigures[figureKey])) {
           throw new Error('The structured simulation completed without species figures.');
         }
-        renderFigure(cachedFigures[selected]);
-        renderTimeseriesFigure(preview.timeseries_figure);
+        if (!showSelectedSpeciesFigure()) {
+          throw new Error('The structured simulation completed without species figures.');
+        }
+        if (diffusionRun) {
+          timeseriesHeadingEl.classList.remove('is-visible');
+          timeseriesPlotEl.style.display = 'none';
+          renderSpatialProfileFigure(
+            preview.spatial_profile_figure,
+            'x',
+            preview.spatial_profile_mid_figure
+          );
+        } else {
+          renderTimeseriesFigure(preview.timeseries_figure);
+          if (getSelectedShape() === 'cylinder') {
+            renderSpatialProfileFigure(preview.spatial_profile_figure);
+          } else {
+            clearSpatialProfileFigure();
+          }
+        }
+
+        lastJobPath = preview.job_path || null;
+        setExportEnabled(!!lastJobPath);
+        if (lastJobPath) {
+          exportStatusEl.textContent = 'Results ready for CSV download and notebook conversion.';
+        } else {
+          exportStatusEl.textContent = 'Simulation completed, but export job data was not saved.';
+        }
 
         setRunState(false, 'Simulation completed.');
         speciesEl.disabled = false;
@@ -1759,6 +2615,7 @@ style.textContent =
           message: 'Structured SpatialPy simulation completed.',
           elapsed_seconds: Math.round((Date.now() - startedAt) / 100) / 10,
           model_path: path,
+          job_path: lastJobPath,
           density: densityLevel,
           species: preview.species || model.species.map(function (item) { return item.name; }),
           viewing_species: selected,
@@ -1771,9 +2628,13 @@ style.textContent =
         setRunState(false, 'Simulation failed.');
         cachedFigures = null;
         lastRunSummary = null;
+        lastJobPath = null;
+        setExportEnabled(false);
         speciesEl.disabled = false;
-        plotHeadingEl.classList.remove('is-visible');
+        plotHeadingRowEl.classList.remove('is-visible');
+        moleculeGradientBtnEl.classList.remove('is-visible');
         timeseriesHeadingEl.classList.remove('is-visible');
+        clearSpatialProfileFigure();
         plotEl.style.display = 'none';
         timeseriesPlotEl.style.display = 'none';
         resultEl.style.display = 'block';
@@ -1784,11 +2645,21 @@ style.textContent =
       }
     }
 
+    moleculeGradientBtnEl.addEventListener('click', function () {
+      moleculeGradientOn = !moleculeGradientOn;
+      syncMoleculeGradientButton(speciesEl.value === DIFFUSION_SIM);
+      if (cachedFigures && speciesEl.value === DIFFUSION_SIM) {
+        showSelectedSpeciesFigure();
+      }
+    });
+
     runBtnEl.addEventListener('click', runSimulation);
+    downloadCsvBtnEl.addEventListener('click', downloadFullCSV);
+    convertNotebookBtnEl.addEventListener('click', convertToNotebook);
 
     editorState = editorStateApi.createEditorState({ density: getDensityLevel() });
     renderReactionTypeOptions();
-    renderSpeciesInitialCountOptions();
+    renderDomainExampleOptions();
     draw();
   }
 

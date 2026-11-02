@@ -336,7 +336,7 @@ class WorkflowNotebookHandler(APIHandler):
                 notebook = GillesPy3DNotebook(**kwargs)
                 notebooks = {"gillespy":notebook.create_es_notebook,
                              "spatial":notebook.create_ses_notebook}
-            resp = notebooks[wkfl_type](results=results, compute=compute)
+            resp = notebooks[wkfl_type](results=results)
             notebook.print_logs(log)
             log.debug(f"Response: {resp}")
             log.info(f"Successfully created the notebook for {file_obj.get_file()}")

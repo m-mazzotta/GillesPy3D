@@ -126,9 +126,16 @@ function testUpdateSpeciesAndInitialCount() {
   );
   assert.deepStrictEqual(editorState.toSmdl(restored), model);
 
+  var high = editorState.addSpecies(state, { name: 'Gamma', initialCount: 5000 });
+  assert.strictEqual(high.initialCount, 5000);
+
   assert.throws(function () {
-    editorState.addSpecies(state, { name: 'Gamma', initialCount: 7 });
-  }, /Initial particle count/);
+    editorState.addSpecies(state, { name: 'Delta', initialCount: -1 });
+  }, /Initial molecules/);
+
+  assert.throws(function () {
+    editorState.addSpecies(state, { name: 'Epsilon', initialCount: 1.5 });
+  }, /Initial molecules/);
 
   assert.throws(function () {
     editorState.updateSpecies(state, species.id, {
@@ -249,10 +256,16 @@ function testNestedSphereDomain() {
   assert.strictEqual(model.domain.shapes[0].name, 'Cytoplasm');
   assert.strictEqual(model.domain.shapes[0].fillable, true);
   assert.strictEqual(model.domain.shapes[0].radius, 1);
+  assert.strictEqual(model.domain.shapes[0].formula, 'True');
   assert.strictEqual(model.domain.shapes[1].name, 'Nucleus');
   assert.strictEqual(model.domain.shapes[1].fillable, false);
   assert.strictEqual(model.domain.shapes[1].radius, 0.4);
   assert.strictEqual(model.domain.shapes[1].formula, '(x*x)+(y*y)+(z*z) < 0.16');
+  assert.strictEqual(
+    editorState.listCompartments(state)[0].formula,
+    '(x*x)+(y*y)+(z*z) < 1'
+  );
+  assert.strictEqual(nucleus.formula, '(x*x)+(y*y)+(z*z) < 0.16');
   assert.strictEqual(model.domain.actions[0].type, 'Fill Action');
   assert.strictEqual(model.domain.actions[0].shape, 'Cytoplasm');
   assert.strictEqual(model.domain.actions[0].typeID, 1);
@@ -366,6 +379,32 @@ function testCylinderShapeModeling() {
   assert.ok(model.parameters.some(function (parameter) {
     return parameter.name === 'right';
   }));
+
+  editorState.addSpecies(state, { name: 'B' });
+  var bTerms = editorState.buildTemplateTerms(state, 'creation');
+  // Prefer B as the creation product for the Edge2 reaction.
+  bTerms.products = [{ speciesId: speciesIdByName(state).B, ratio: 1 }];
+  editorState.addReaction(state, {
+    name: 'r2',
+    rateExpression: 1,
+    reactants: bTerms.reactants,
+    products: bTerms.products
+  });
+  model = editorState.toSmdl(state);
+  assert.deepStrictEqual(model.species[0].types, [1, 2]);
+  assert.deepStrictEqual(model.species[1].types, [1, 3]);
+  assert.deepStrictEqual(model.reactions[0].types, [2]);
+  assert.deepStrictEqual(model.reactions[1].types, [3]);
+  assert.strictEqual(model.reactions[1].propensity, 'r2_rate / right * vol');
+  assert.strictEqual(model.reactions[1].massaction, false);
+  assert.strictEqual(model.reactions.length, 3);
+  assert.strictEqual(model.reactions[2].massaction, true);
+  assert.deepStrictEqual(
+    model.reactions[2].reactants.map(function (entry) { return entry.specie.name; }).sort(),
+    ['A', 'B']
+  );
+  assert.deepStrictEqual(model.reactions[2].products, []);
+  assert.deepStrictEqual(model.reactions[2].types, [1, 2, 3]);
 
   editorState.setEndSim(state, 500);
   model = editorState.toSmdl(state);
@@ -636,12 +675,222 @@ function testValidation() {
   }, /unknown species id/);
 }
 
+function testCustomShapeFormula() {
+  var state = editorState.createEditorState({ density: 'low' });
+  var domain = editorState.listCompartments(state)[0];
+  assert.strictEqual(domain.formula, editorState.sphereFormula(1));
+
+  editorState.updateCompartment(state, domain.id, {
+    name: 'Shell',
+    radius: 1,
+    formula: '(x*x)+(y*y)+(z*z) < 1 and (x*x)+(y*y)+(z*z) > 0.25'
+  });
+  var model = editorState.toSmdl(state);
+  assert.strictEqual(
+    model.domain.shapes[0].formula,
+    '(x*x)+(y*y)+(z*z) < 1 and (x*x)+(y*y)+(z*z) > 0.25'
+  );
+
+  // Changing radius alone keeps a customized formula.
+  editorState.updateCompartment(state, domain.id, {
+    name: 'Shell',
+    radius: 0.8
+  });
+  assert.strictEqual(
+    editorState.listCompartments(state)[0].formula,
+    '(x*x)+(y*y)+(z*z) < 1 and (x*x)+(y*y)+(z*z) > 0.25'
+  );
+
+  // Default formula tracks radius until customized.
+  var nucleus = editorState.addCompartment(state, { name: 'Nucleus', radius: 0.4 });
+  assert.strictEqual(nucleus.formula, editorState.sphereFormula(0.4));
+  editorState.updateCompartment(state, nucleus.id, {
+    name: 'Nucleus',
+    radius: 0.2
+  });
+  assert.strictEqual(
+    editorState.listCompartments(state).find(function (item) {
+      return item.name === 'Nucleus';
+    }).formula,
+    editorState.sphereFormula(0.2)
+  );
+}
+
+function testFormulaExamplesScaleWithRadius() {
+  assert.strictEqual(
+    editorState.halfSphereFormula(0.7),
+    '(x*x)+(y*y)+(z*z) < 0.49 and z > 0'
+  );
+  assert.strictEqual(
+    editorState.hollowSphereFormula(1),
+    '(x*x)+(y*y)+(z*z) < 1 and (x*x)+(y*y)+(z*z) > 0.16'
+  );
+  assert.strictEqual(
+    editorState.hollowSphereFormula(0.7),
+    '(x*x)+(y*y)+(z*z) < 0.49 and (x*x)+(y*y)+(z*z) > 0.0784'
+  );
+  assert.strictEqual(editorState.shapeFormulaForExample('solid', 0.7), editorState.sphereFormula(0.7));
+  assert.strictEqual(editorState.matchShapeFormulaExample(editorState.halfSphereFormula(0.7), 0.7), 'half');
+  assert.strictEqual(editorState.matchShapeFormulaExample('z > 0', 0.7), 'custom');
+}
+
+function testInlineEcoliLayout() {
+  var state = editorState.createEditorState({ density: 'low' });
+  editorState.setArrangement(state, 'inline');
+  var left = editorState.listCompartments(state)[0];
+  editorState.updateCompartment(state, left.id, {
+    name: 'LeftCap',
+    radius: 1,
+    lattice: 'sphere',
+    formula: editorState.halfSphereFormula(1)
+  });
+  var body = editorState.addCompartment(state, {
+    name: 'Body',
+    radius: 1,
+    lattice: 'cylinder',
+    length: 2
+  });
+  editorState.addCompartment(state, {
+    name: 'RightCap',
+    radius: 1,
+    lattice: 'sphere',
+    formula: editorState.halfSphereFormula(1)
+  });
+  editorState.addSpecies(state, {
+    name: 'A',
+    initialCount: 10,
+    compartmentId: body.id
+  });
+
+  var model = editorState.toSmdl(state);
+  assert.strictEqual(model.domain.arrangement, 'inline');
+  assert.strictEqual(model.domain.actions.length, 3);
+  model.domain.actions.forEach(function (action) {
+    assert.strictEqual(action.type, 'Fill Action');
+  });
+  assert.strictEqual(model.domain.shapes[0].formula, '(x*x)+(y*y)+(z*z) < 1 and x < 0');
+  assert.deepStrictEqual(model.domain.shapes[0].center, [1, 0, 0]);
+  assert.strictEqual(model.domain.shapes[1].lattice, 'Cylindrical Lattice');
+  assert.strictEqual(model.domain.shapes[1].length, 2);
+  assert.deepStrictEqual(model.domain.shapes[1].center, [1.5, 0, 0]);
+  assert.strictEqual(model.domain.shapes[2].formula, '(x*x)+(y*y)+(z*z) < 1 and x > 0');
+  assert.deepStrictEqual(model.domain.shapes[2].center, [2, 0, 0]);
+  assert.strictEqual(model.species[0].diffusionConst, 0.1);
+  assert.deepStrictEqual(model.species[0].types, [1, 2, 3]);
+  assert.deepStrictEqual(model.initialConditions[0].types, [2]);
+
+  var restored = editorState.fromSmdl(model);
+  assert.strictEqual(restored.arrangement, 'inline');
+  assert.strictEqual(editorState.listCompartments(restored)[1].lattice, 'cylinder');
+  assert.strictEqual(
+    editorState.matchShapeFormulaExample(editorState.listCompartments(restored)[0].formula, 1),
+    'half'
+  );
+}
+
+function testDiffusionPreviewUsesAssignedSpecies() {
+  var empty = editorState.createEditorState({ density: 'low' });
+  assert.throws(function () {
+    editorState.diffusionPreviewModel(empty);
+  }, /initial particle count/);
+
+  var single = editorState.createEditorState({ density: 'low' });
+  editorState.addSpecies(single, { name: 'A', initialCount: 20 });
+  var singleModel = editorState.diffusionPreviewModel(single);
+  assert.strictEqual(singleModel.species.length, 1);
+  assert.strictEqual(singleModel.species[0].name, 'A');
+  assert.strictEqual(singleModel.species[0].diffusionConst, 0.1);
+  assert.deepStrictEqual(singleModel.species[0].types, [1]);
+  assert.strictEqual(singleModel.reactions.length, 0);
+  assert.strictEqual(singleModel.initialConditions.length, 1);
+  assert.strictEqual(singleModel.initialConditions[0].icType, 'Scatter');
+  assert.strictEqual(singleModel.initialConditions[0].count, 20);
+  assert.deepStrictEqual(singleModel.initialConditions[0].types, [1]);
+
+  var nested = editorState.createEditorState({ density: 'low' });
+  editorState.applyDomainExample(nested, 'nested-cell');
+  var nucleus = editorState.listCompartments(nested)[1];
+  editorState.addSpecies(nested, {
+    name: 'A',
+    initialCount: 10,
+    compartmentId: nucleus.id
+  });
+  var nestedModel = editorState.diffusionPreviewModel(nested);
+  assert.deepStrictEqual(nestedModel.species[0].types, [1, 2]);
+  assert.deepStrictEqual(nestedModel.initialConditions[0].types, [nucleus.typeID]);
+  assert.strictEqual(nestedModel.initialConditions[0].count, 10);
+
+  var state = editorState.createEditorState({ density: 'low' });
+  editorState.applyDomainExample(state, 'ecoli-cell');
+  var caps = editorState.listCompartments(state);
+  editorState.addSpecies(state, {
+    name: 'A',
+    initialCount: 10,
+    compartmentId: caps[0].id
+  });
+  editorState.addSpecies(state, {
+    name: 'B',
+    initialCount: 0,
+    compartmentId: caps[2].id
+  });
+  var model = editorState.diffusionPreviewModel(state);
+  assert.strictEqual(model.species.length, 1);
+  assert.strictEqual(model.species[0].name, 'A');
+  assert.strictEqual(model.species[0].diffusionConst, 0.1);
+  assert.deepStrictEqual(model.species[0].types, [1, 2, 3]);
+  assert.strictEqual(model.reactions.length, 0);
+  assert.strictEqual(model.parameters.length, 0);
+  assert.strictEqual(model.initialConditions[0].icType, 'Scatter');
+  assert.strictEqual(model.initialConditions[0].count, 10);
+  assert.deepStrictEqual(model.initialConditions[0].types, [caps[0].typeID]);
+  assert.deepStrictEqual(editorState.listSpeciesNames(state), ['A', 'B']);
+}
+
+function testDomainExamples() {
+  var state = editorState.createEditorState({ density: 'low' });
+  editorState.addSpecies(state, { name: 'A', initialCount: 10 });
+  editorState.applyDomainExample(state, 'nested-cell');
+  var nested = editorState.listCompartments(state);
+  assert.strictEqual(state.arrangement, 'nested');
+  assert.deepStrictEqual(nested.map(function (item) { return item.name; }), ['Cytoplasm', 'Nucleus']);
+  assert.strictEqual(nested[0].radius, 1);
+  assert.strictEqual(nested[1].radius, 0.4);
+  assert.strictEqual(nested[0].formula, editorState.sphereFormula(1));
+  assert.strictEqual(nested[1].formula, editorState.sphereFormula(0.4));
+  assert.strictEqual(editorState.listSpecies(state)[0].compartmentId, nested[0].id);
+
+  var model = editorState.toSmdl(state);
+  assert.strictEqual(model.domain.shapes[0].fillable, true);
+  assert.strictEqual(model.domain.actions[1].type, 'Set Action');
+
+  editorState.applyDomainExample(state, 'ecoli-cell');
+  var ecoli = editorState.listCompartments(state);
+  assert.strictEqual(state.arrangement, 'inline');
+  assert.deepStrictEqual(ecoli.map(function (item) { return item.name; }), [
+    'RightCap', 'Cylinder', 'LeftCap'
+  ]);
+  assert.strictEqual(ecoli[1].lattice, 'cylinder');
+  assert.strictEqual(ecoli[1].length, 2);
+  assert.strictEqual(ecoli[0].formula, editorState.halfSphereFormula(1));
+  assert.strictEqual(ecoli[2].formula, editorState.halfSphereFormula(1));
+  var preview = editorState.toSmdl(state);
+  assert.strictEqual(preview.domain.shapes.length, 3);
+  assert.strictEqual(preview.domain.shapes[0].formula, '(x*x)+(y*y)+(z*z) < 1 and x < 0');
+  assert.strictEqual(preview.domain.shapes[2].formula, '(x*x)+(y*y)+(z*z) < 1 and x > 0');
+  assert.strictEqual(preview.domain.shapes[1].lattice, 'Cylindrical Lattice');
+}
+
 function run() {
   testEmptyModelDefaults();
   testAddAndRemoveSpecies();
   testUpdateSpeciesAndInitialCount();
   testCompartmentsAndSpeciesAssignment();
   testNestedSphereDomain();
+  testCustomShapeFormula();
+  testFormulaExamplesScaleWithRadius();
+  testInlineEcoliLayout();
+  testDiffusionPreviewUsesAssignedSpecies();
+  testDomainExamples();
   testDensityPresets();
   testCylinderDomain();
   testCylinderShapeModeling();

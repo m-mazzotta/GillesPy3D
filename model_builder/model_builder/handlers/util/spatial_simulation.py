@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
 import json
 import pickle
+import shutil
 import logging
 import traceback
 
@@ -54,6 +55,7 @@ class SpatialSimulation(GillesPy3DJob):
             Results data target used for ploting
         '''
         super().__init__(path=path)
+        self.export_model_path = None
         if not preview:
             self.settings = self.load_settings()
             self.s_py_model, self.s_model = self.load_models()
@@ -205,7 +207,7 @@ class SpatialSimulation(GillesPy3DJob):
         elif deterministic:
             y_label = "Deterministic value"
         else:
-            y_label = "Count"
+            y_label = "Molecules"
 
         figure.update_layout(
             title="Species totals over time",
@@ -225,6 +227,167 @@ class SpatialSimulation(GillesPy3DJob):
         plot["config"] = {"responsive": True, "displayModeBar": True}
         return plot
 
+    @staticmethod
+    def __domain_coordinates(results):
+        domain = getattr(getattr(results, "model", None), "domain", None)
+        if domain is None:
+            return None
+        if callable(getattr(domain, "coordinates", None)):
+            coords = domain.coordinates()
+        else:
+            coords = getattr(domain, "vertices", None)
+        if coords is None:
+            return None
+        return numpy.asarray(coords, dtype=float)
+
+    @classmethod
+    def __long_axis_index(cls, coords):
+        extents = numpy.ptp(coords, axis=0)
+        return int(numpy.argmax(extents))
+
+    def __plot_species_spatial_profile(self, results, species_names, num_bins=40,
+                                       time_mode="initial"):
+        '''
+        Population summed into bins along X.
+
+        time_mode:
+          - "initial": first frame (Time = 0)
+          - "mid": middle frame summarized across the run
+        '''
+        concentration = self.s_model['defaultMode'] == "discrete-concentration"
+        deterministic = self.s_model['defaultMode'] == "continuous"
+        coords = self.__domain_coordinates(results)
+        if coords is None or coords.size == 0:
+            return {
+                "data": [],
+                "layout": {
+                    "title": "Molecule Population Along x-axis",
+                    "autosize": True
+                },
+                "config": {"responsive": True, "displayModeBar": True}
+            }
+
+        axis = 0
+        positions = coords[:, axis]
+        axis_label = "X"
+        use_mid = time_mode == "mid"
+
+        figure = go.Figure()
+        snapshot_time = None
+        for name in species_names:
+            species_data = numpy.asarray(results.get_species(
+                name, concentration=concentration, deterministic=deterministic
+            ), dtype=float)
+            times = self.__timespan_to_list(
+                results.get_timespan(),
+                num_points=1 if species_data.ndim == 1 else species_data.shape[0]
+            )
+            if species_data.ndim == 1:
+                frame = species_data
+                time_index = 0
+            elif use_mid and species_data.shape[0] > 1 and times:
+                # Closest output frame to half the run, for any end time length.
+                target = float(times[-1]) / 2.0
+                time_index = int(numpy.argmin([
+                    abs(float(time_value) - target) for time_value in times
+                ]))
+                frame = species_data[time_index]
+            else:
+                time_index = 0
+                frame = species_data[time_index] if species_data.ndim > 1 else species_data
+
+            if snapshot_time is None:
+                if times and time_index < len(times):
+                    snapshot_time = self.__format_time_label(times[time_index])
+                else:
+                    snapshot_time = time_index
+
+            if frame.shape[0] != positions.shape[0]:
+                count = min(frame.shape[0], positions.shape[0])
+                frame = frame[:count]
+                pos = positions[:count]
+            else:
+                pos = positions
+
+            hist, edges = numpy.histogram(
+                pos, bins=num_bins, weights=frame
+            )
+            centers = 0.5 * (edges[:-1] + edges[1:])
+            figure.add_trace(go.Scatter(
+                x=centers.tolist(),
+                y=hist.tolist(),
+                mode="lines",
+                name=name
+            ))
+
+        if concentration:
+            y_label = "Concentration"
+        elif deterministic:
+            y_label = "Deterministic value"
+        else:
+            y_label = "Molecules"
+
+        if use_mid:
+            title = "Molecule Population Along x-axis (Summarized)"
+            if snapshot_time is not None:
+                title = f"{title} (t = {snapshot_time})"
+        else:
+            title = "Molecule Population Along x-axis at Time = 0"
+
+        figure.update_layout(
+            title=title,
+            xaxis_title=f"Position ({axis_label})",
+            yaxis_title=y_label,
+            autosize=True,
+            legend={
+                "orientation": "h",
+                "yanchor": "bottom",
+                "y": 1.02,
+                "xanchor": "right",
+                "x": 1
+            }
+        )
+        plot = json.loads(figure.to_json())
+        plot["layout"]["autosize"] = True
+        plot["config"] = {"responsive": True, "displayModeBar": True}
+        return plot
+
+    @classmethod
+    def persist_preview_export_job(cls, model_path, results):
+        '''
+        Create or refresh a sibling spatial job so mockup previews can reuse the
+        standard /job/csv and /workflow/notebook export endpoints.
+        '''
+        if not model_path:
+            return None
+        name = os.path.splitext(os.path.basename(model_path))[0]
+        dirname = os.path.dirname(model_path)
+        job_rel = os.path.join(dirname, f"{name}_SES_preview.wkfl") if dirname else \
+            f"{name}_SES_preview.wkfl"
+        job_full = os.path.join(cls.user_dir, job_rel)
+
+        if not os.path.exists(job_full):
+            GillesPy3DJob(
+                path=job_rel,
+                new=True,
+                data={
+                    "type": "spatial",
+                    "mdl_path": model_path,
+                    "settings": None,
+                    "compute_env": "Local"
+                }
+            )
+        else:
+            src = os.path.join(cls.user_dir, model_path)
+            if os.path.exists(src):
+                shutil.copyfile(src, os.path.join(job_full, os.path.basename(model_path)))
+
+        results_dir = os.path.join(job_full, "results")
+        os.makedirs(results_dir, exist_ok=True)
+        with open(os.path.join(results_dir, "results.p"), "wb") as results_file:
+            pickle.dump(results, results_file)
+        return job_rel
+
     def run(self, preview=False, verbose=False):
         '''
         Run a SpatialPy ensemble simulation job
@@ -240,6 +403,14 @@ class SpatialSimulation(GillesPy3DJob):
             if verbose:
                 self.log("info", "Running a preview spatial ensemble simulation")
             results = self.s_py_model.run()
+            job_path = None
+            if self.export_model_path:
+                try:
+                    job_path = self.persist_preview_export_job(
+                        self.export_model_path, results
+                    )
+                except Exception as err:  # pylint: disable=broad-except
+                    log.warning("Could not persist preview export job: %s", err)
             t_ndx_list = self.__preview_frame_labels(results)
             kwargs = {"t_ndx_list": t_ndx_list, "animated": True, "width": "auto", "height": "auto",
                       "return_plotly_figure": True, "f_duration": 100, "t_duration": 100}
@@ -252,13 +423,27 @@ class SpatialSimulation(GillesPy3DJob):
                 return {
                     "species": species,
                     "figures": figures,
-                    "timeseries_figure": self.__plot_species_timeseries(results, species)
+                    "timeseries_figure": self.__plot_species_timeseries(results, species),
+                    "spatial_profile_figure": self.__plot_species_spatial_profile(
+                        results, species, time_mode="initial"
+                    ),
+                    "spatial_profile_mid_figure": self.__plot_species_spatial_profile(
+                        results, species, time_mode="mid"
+                    ),
+                    "job_path": job_path
                 }
             species = [entry['name'] for entry in self.s_model['species']]
             spatial_figure = self.__plot_preview_target(results, self.target, kwargs)
             spatial_figure["timeseries_figure"] = self.__plot_species_timeseries(
                 results, species
             )
+            spatial_figure["spatial_profile_figure"] = self.__plot_species_spatial_profile(
+                results, species, time_mode="initial"
+            )
+            spatial_figure["spatial_profile_mid_figure"] = self.__plot_species_spatial_profile(
+                results, species, time_mode="mid"
+            )
+            spatial_figure["job_path"] = job_path
             return spatial_figure
         if verbose:
             log.info("Running the spatial ensemble simulation")

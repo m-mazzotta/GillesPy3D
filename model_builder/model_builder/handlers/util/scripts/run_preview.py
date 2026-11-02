@@ -92,6 +92,7 @@ def run_spatialpy_preview(args):
     job = SpatialSimulation(path="", preview=True, target=args.target)
     job.s_py_model = model.convert_to_spatialpy(include_model_settings=True)
     job.s_model = model.model
+    job.export_model_path = args.path
     return job.run(preview=True)
 
 

@@ -42,11 +42,53 @@ var DOMAIN_SHAPES = ['sphere', 'cylinder'];
 
 function speciesTypesForShape(shape) {
   if (shape === 'cylinder') {
-    // Match the legacy 3D Cylinder demo: species created at Edge1
-    // are restricted to Middle + Edge1 (not Edge2).
+    // Default: match the legacy 3D Cylinder demo Edge1-created species.
     return [CYLINDER_TYPES.MIDDLE, CYLINDER_TYPES.EDGE1];
   }
   return [DOMAIN_TYPE_ID];
+}
+
+function listCreationReactions(state) {
+  return (state.reactionOrder || []).map(function (id) {
+    return state.reactions[id];
+  }).filter(function (reaction) {
+    return reaction && isCreationReaction(reaction);
+  });
+}
+
+function cylinderEdgeForCreationIndex(index) {
+  return index === 0 ? CYLINDER_TYPES.EDGE1 : CYLINDER_TYPES.EDGE2;
+}
+
+function cylinderSpeciesTypesForEdge(edgeTypeId) {
+  if (Number(edgeTypeId) === CYLINDER_TYPES.EDGE2) {
+    return [CYLINDER_TYPES.MIDDLE, CYLINDER_TYPES.EDGE2];
+  }
+  return [CYLINDER_TYPES.MIDDLE, CYLINDER_TYPES.EDGE1];
+}
+
+function creationEdgeBySpeciesId(state) {
+  var bySpecies = {};
+  listCreationReactions(state).forEach(function (reaction, index) {
+    var edge = cylinderEdgeForCreationIndex(index);
+    (reaction.products || []).forEach(function (entry) {
+      if (entry && entry.speciesId != null && bySpecies[entry.speciesId] == null) {
+        bySpecies[entry.speciesId] = edge;
+      }
+    });
+  });
+  return bySpecies;
+}
+
+function creationIndexForReaction(state, reaction) {
+  var creations = listCreationReactions(state);
+  var index;
+  for (index = 0; index < creations.length; index += 1) {
+    if (creations[index].id === reaction.id) {
+      return index;
+    }
+  }
+  return creations.length;
 }
 
 function diffusionForShape(shape) {
@@ -56,7 +98,7 @@ function diffusionForShape(shape) {
 function reactionTypesForShape(shape, reaction, state) {
   if (shape === 'cylinder') {
     if (reaction.reactants.length === 0 && reaction.products.length > 0) {
-      return [CYLINDER_TYPES.EDGE1];
+      return [cylinderEdgeForCreationIndex(creationIndexForReaction(state, reaction))];
     }
     return [
       CYLINDER_TYPES.MIDDLE,
@@ -185,12 +227,28 @@ function defaultReactionRate(state, templateId) {
 }
 
 function syncShapeModeling(state) {
-  var diffusion = diffusionForShape(state.shape);
+  var inline = state.arrangement === 'inline';
+  var diffusion = inline ? 0.1 : diffusionForShape(state.shape);
   ensureDefaultCompartment(state);
+  ensureCylinderAnnihilation(state);
+  var inlineTypes = inline
+    ? listCompartments(state).map(function (compartment) {
+      return compartment.typeID;
+    })
+    : null;
+  var edgeBySpecies = state.shape === 'cylinder'
+    ? creationEdgeBySpeciesId(state)
+    : {};
   sortedRecords(state.species).forEach(function (species) {
     species.diffusionConst = diffusion;
+    if (inline) {
+      species.types = clone(inlineTypes);
+      return;
+    }
     if (state.shape === 'cylinder') {
-      species.types = clone(speciesTypesForShape(state.shape));
+      species.types = clone(cylinderSpeciesTypesForEdge(
+        edgeBySpecies[species.id] || CYLINDER_TYPES.EDGE1
+      ));
       return;
     }
     var compartment = state.compartments[species.compartmentId];
@@ -237,6 +295,9 @@ function validateEndSim(endSim) {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error('Simulation end time must be a positive number.');
   }
+  if (value > 1000000) {
+    throw new Error('Simulation end time must be at most 1000000.');
+  }
   return value;
 }
 
@@ -266,13 +327,11 @@ function allocateId(state) {
 
 function validateInitialCount(count) {
   var value = Number(count);
-  var allowed = INITIAL_COUNT_PRESETS.map(function (preset) {
-    return preset.value;
-  });
-  if (allowed.indexOf(value) < 0) {
-    throw new Error(
-      'Initial particle count must be one of: ' + allowed.join(', ') + '.'
-    );
+  if (!Number.isFinite(value) || value < 0 || Math.floor(value) !== value) {
+    throw new Error('Initial molecules must be a non-negative whole number.');
+  }
+  if (value > 10000000) {
+    throw new Error('Initial molecules must be at most 10000000.');
   }
   return value;
 }
@@ -371,7 +430,8 @@ function createEmptyState(density, shape) {
     parameters: {},
     reactions: {},
     reactionOrder: [],
-    template_version: 1
+    template_version: 1,
+    arrangement: 'nested'
   };
   ensureDefaultCompartment(state);
   return state;
@@ -397,7 +457,8 @@ function ensureDefaultCompartment(state) {
     id: id,
     name: 'Domain',
     typeID: DOMAIN_TYPE_ID,
-    radius: defaultOuterRadius(state.density)
+    radius: defaultOuterRadius(state.density),
+    formula: sphereFormula(defaultOuterRadius(state.density))
   };
   state.compartmentOrder.push(id);
   return state;
@@ -445,6 +506,7 @@ function ensureCompartmentRadius(state, compartment) {
     return compartment;
   }
   if (compartment.radius != null && Number.isFinite(Number(compartment.radius))) {
+    ensureCompartmentFormula(compartment);
     return compartment;
   }
   var hasOtherRadius = Object.keys(state.compartments || {}).some(function (key) {
@@ -457,6 +519,7 @@ function ensureCompartmentRadius(state, compartment) {
   compartment.radius = hasOtherRadius
     ? defaultNestedRadius(state)
     : defaultOuterRadius(state.density);
+  ensureCompartmentFormula(compartment);
   return compartment;
 }
 
@@ -526,6 +589,11 @@ function suggestCompartmentName(state) {
 
 function suggestCompartmentRadius(state) {
   ensureDefaultCompartment(state);
+  if (state.arrangement === 'inline') {
+    var existing = listCompartments(state);
+    var radius = existing.length > 0 ? Number(existing[0].radius) : 0;
+    return radius > 0 ? radius : defaultOuterRadius(state.density);
+  }
   return defaultNestedRadius(state);
 }
 
@@ -542,12 +610,18 @@ function addCompartment(state, options) {
   var radius = config.radius == null
     ? defaultNestedRadius(state)
     : validateCompartmentRadius(config.radius);
+  var formula = config.formula == null || String(config.formula).trim() === ''
+    ? sphereFormula(radius)
+    : normalizeFormula(config.formula);
   var id = allocateId(state);
   var compartment = {
     id: id,
     name: name,
     typeID: nextCompartmentTypeID(state),
-    radius: radius
+    radius: radius,
+    formula: formula,
+    lattice: config.lattice === 'cylinder' ? 'cylinder' : 'sphere',
+    length: config.length == null ? 2 : validateCompartmentLength(config.length)
   };
   state.compartments[id] = compartment;
   state.compartmentOrder.push(id);
@@ -570,18 +644,47 @@ function updateCompartment(state, compartmentId, options) {
     throw new Error('A shape named "' + name + '" already exists.');
   }
   compartment.name = name;
+  var previousRadius = Number(compartment.radius);
+  var previousDefaultFormula = Number.isFinite(previousRadius) && previousRadius > 0
+    ? sphereFormula(previousRadius)
+    : null;
   if (config.radius != null) {
     compartment.radius = validateCompartmentRadius(config.radius);
   } else {
     ensureCompartmentRadius(state, compartment);
   }
+  if (config.formula != null) {
+    compartment.formula = normalizeFormula(config.formula);
+  } else if (
+    !compartment.formula ||
+    (previousDefaultFormula && compartment.formula === previousDefaultFormula)
+  ) {
+    // Keep formula in sync with radius until the user customizes it.
+    compartment.formula = sphereFormula(compartment.radius);
+  } else {
+    ensureCompartmentFormula(compartment);
+  }
+  if (config.lattice != null) {
+    compartment.lattice = config.lattice === 'cylinder' ? 'cylinder' : 'sphere';
+  }
+  if (config.length != null) {
+    compartment.length = validateCompartmentLength(config.length);
+  }
   validateNestedRadii(state);
   return compartment;
 }
 
+function validateCompartmentLength(length) {
+  var value = Number(length);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error('Cylinder length must be a positive number.');
+  }
+  return value;
+}
+
 function validateNestedRadii(state) {
   var compartments = listCompartments(state);
-  if (compartments.length < 2) {
+  if (state.arrangement === 'inline' || compartments.length < 2) {
     return;
   }
   var ordered = sortCompartmentsByRadiusDesc(compartments);
@@ -793,11 +896,30 @@ function buildTemplateTerms(state, templateId) {
     throw new Error('The model needs at least one species before adding a reaction.');
   }
 
+  var createdIds = {};
+  if (templateId === 'creation') {
+    listCreationReactions(state).forEach(function (reaction) {
+      (reaction.products || []).forEach(function (entry) {
+        if (entry && entry.speciesId != null) {
+          createdIds[entry.speciesId] = true;
+        }
+      });
+    });
+  }
+
   var usedIds = [];
   function nextSpeciesId() {
     var available = pool.filter(function (species) {
       return usedIds.indexOf(species.id) < 0;
     });
+    if (templateId === 'creation') {
+      var notYetCreated = available.filter(function (species) {
+        return !createdIds[species.id];
+      });
+      if (notYetCreated.length > 0) {
+        available = notYetCreated;
+      }
+    }
     var species = available.length > 0 ? available[0] : pool[0];
     usedIds.push(species.id);
     return species.id;
@@ -826,11 +948,107 @@ function shapeGeometryName(compartment) {
     .replace(/[^A-Za-z0-9_]/g, '_');
 }
 
-function sphereFormula(radius) {
-  var r2 = radius * radius;
+// Hole radius as a fraction of the selected radius (0.4 → r² cutoff 0.16 at radius 1).
+var HOLLOW_INNER_RADIUS_RATIO = 0.4;
+
+var FORMULA_EXAMPLES = [
+  { id: 'solid', label: 'Solid sphere: (x*x)+(y*y)+(z*z) < 1' },
+  { id: 'half', label: 'Half-sphere: (x*x)+(y*y)+(z*z) < 1 and z > 0' },
+  {
+    id: 'hollow',
+    label: 'Hollow sphere: (x*x)+(y*y)+(z*z) < 1 and (x*x)+(y*y)+(z*z) > 0.16'
+  }
+];
+
+function encodedRadiusSquared(radius) {
   // Keep a stable decimal representation for round-trips.
-  var encoded = Number(r2.toPrecision(12));
-  return '(x*x)+(y*y)+(z*z) < ' + encoded;
+  return Number((radius * radius).toPrecision(12));
+}
+
+function sphereFormula(radius) {
+  return '(x*x)+(y*y)+(z*z) < ' + encodedRadiusSquared(radius);
+}
+
+function halfSphereFormula(radius) {
+  return sphereFormula(radius) + ' and z > 0';
+}
+
+function hollowSphereFormula(radius) {
+  var inner = encodedRadiusSquared(radius * HOLLOW_INNER_RADIUS_RATIO);
+  return sphereFormula(radius) + ' and (x*x)+(y*y)+(z*z) > ' + inner;
+}
+
+function shapeFormulaForExample(exampleId, radius) {
+  if (exampleId === 'half') {
+    return halfSphereFormula(radius);
+  }
+  if (exampleId === 'hollow') {
+    return hollowSphereFormula(radius);
+  }
+  return sphereFormula(radius);
+}
+
+function isHalfSphereFormula(formula, radius) {
+  var ball = '(x*x)+(y*y)+(z*z) < ' + encodedRadiusSquared(radius);
+  var value = String(formula == null ? '' : formula).trim();
+  return value === ball + ' and z > 0' ||
+    value === ball + ' and x > 0' ||
+    value === ball + ' and x < 0';
+}
+
+function matchShapeFormulaExample(formula, radius) {
+  var value = String(formula == null ? '' : formula).trim();
+  if (isHalfSphereFormula(formula, radius)) {
+    return 'half';
+  }
+  if (value === hollowSphereFormula(radius)) {
+    return 'hollow';
+  }
+  if (value === sphereFormula(radius)) {
+    return 'solid';
+  }
+  return 'custom';
+}
+
+function normalizeFormula(formula) {
+  var value = String(formula == null ? '' : formula).trim();
+  if (!value) {
+    throw new Error(
+      'Shape formula is required. Use a boolean expression in x, y, and z ' +
+      '(for example (x*x)+(y*y)+(z*z) < 1).'
+    );
+  }
+  return value;
+}
+
+function ensureCompartmentFormula(compartment) {
+  if (!compartment) {
+    return compartment;
+  }
+  if (compartment.formula != null && String(compartment.formula).trim()) {
+    compartment.formula = String(compartment.formula).trim();
+    return compartment;
+  }
+  var radius = Number(compartment.radius);
+  compartment.formula = Number.isFinite(radius) && radius > 0
+    ? sphereFormula(radius)
+    : sphereFormula(1);
+  return compartment;
+}
+
+function fillGeometryFormula(compartment) {
+  // SphericalLattice already clips particles to the outer radius, so the default
+  // ball formula is equivalent to True for Fill. Keep True unless the user
+  // edited the formula into a custom region (for example a shell).
+  var formula = ensureCompartmentFormula(compartment).formula;
+  var radius = Number(compartment.radius);
+  if (formula === 'True' || formula === 'true') {
+    return 'True';
+  }
+  if (Number.isFinite(radius) && radius > 0 && formula === sphereFormula(radius)) {
+    return 'True';
+  }
+  return formula;
 }
 
 function sortCompartmentsByRadiusDesc(compartments) {
@@ -865,7 +1083,190 @@ function buildAction(type, priority, shapeName, typeID) {
   };
 }
 
-function createDomain(density, shape, compartments) {
+function compartmentLatticeKind(compartment) {
+  return compartment && compartment.lattice === 'cylinder' ? 'cylinder' : 'sphere';
+}
+
+function compartmentLengthValue(compartment) {
+  var length = Number(compartment && compartment.length);
+  return Number.isFinite(length) && length > 0 ? length : 2;
+}
+
+function layoutInlineShapes(state) {
+  var preset = getDensityPreset(state.density || 'low');
+  var overlap = Number(preset.deltar) > 0 ? Number(preset.deltar) : Number(preset.deltas);
+  var compartments = listCompartments(state);
+  var cursor = 0;
+  return compartments.map(function (compartment, index) {
+    var radius = Number(compartment.radius) > 0 ? Number(compartment.radius) : 1;
+    var lattice = compartmentLatticeKind(compartment);
+    var half = lattice !== 'cylinder' && isHalfSphereFormula(compartment.formula, radius);
+    var hasPrev = index > 0;
+    var hasNext = index < compartments.length - 1;
+    var facing = 'positive';
+    if (half && hasNext && !hasPrev) {
+      facing = 'negative';
+    } else if (half && hasPrev && !hasNext) {
+      facing = 'positive';
+    }
+    var width = lattice === 'cylinder'
+      ? compartmentLengthValue(compartment)
+      : (half ? radius : radius * 2);
+    var left = index === 0 ? 0 : cursor - overlap;
+    var right = left + width;
+    var centerX = (left + right) / 2;
+    if (half && facing === 'negative') {
+      centerX = right;
+    } else if (half && facing === 'positive') {
+      centerX = left;
+    }
+    var role = lattice === 'cylinder' ? 'cylinder' : (half ? 'half-sphere' : 'sphere');
+    if (half && facing === 'negative' && !hasPrev) {
+      role = 'left cap';
+    } else if (half && facing === 'positive' && !hasNext && hasPrev) {
+      role = 'right cap';
+    }
+    var formula = compartment.formula && String(compartment.formula).trim()
+      ? String(compartment.formula).trim()
+      : sphereFormula(radius);
+    if (lattice === 'cylinder') {
+      formula = 'True';
+    } else if (half) {
+      formula = '(x*x)+(y*y)+(z*z) < ' + encodedRadiusSquared(radius) +
+        (facing === 'negative' ? ' and x < 0' : ' and x > 0');
+    } else if (matchShapeFormulaExample(formula, radius) === 'solid') {
+      formula = 'True';
+    }
+    cursor = right;
+    return {
+      id: compartment.id,
+      name: compartment.name,
+      typeID: compartment.typeID,
+      radius: radius,
+      length: lattice === 'cylinder' ? width : 0,
+      lattice: lattice,
+      center: [centerX, 0, 0],
+      role: role,
+      formula: formula
+    };
+  });
+}
+
+function createInlineDomain(density, compartments) {
+  var preset = getDensityPreset(density);
+  var placed = layoutInlineShapes({
+    density: density,
+    compartments: (compartments || []).reduce(function (map, compartment) {
+      map[compartment.id] = compartment;
+      return map;
+    }, {}),
+    compartmentOrder: (compartments || []).map(function (compartment) {
+      return compartment.id;
+    })
+  });
+  if (placed.length === 0) {
+    placed = layoutInlineShapes({
+      density: density,
+      compartments: {
+        1: {
+          id: 1,
+          name: 'Domain',
+          typeID: DOMAIN_TYPE_ID,
+          radius: preset.radius,
+          formula: sphereFormula(preset.radius),
+          lattice: 'sphere'
+        }
+      },
+      compartmentOrder: [1]
+    });
+  }
+
+  var types = [{
+    c: 10,
+    fixed: false,
+    mass: 1,
+    name: 'Un-Assigned',
+    nu: 0,
+    rho: 1,
+    typeID: 0,
+    volume: 1
+  }].concat(placed.map(function (shape) {
+    return {
+      c: 10,
+      fixed: false,
+      mass: 1,
+      name: shape.name,
+      nu: 0,
+      rho: 1,
+      typeID: shape.typeID,
+      volume: 1
+    };
+  }));
+
+  var usedNames = {};
+  var shapes = [];
+  var actions = [];
+  var minX = 0;
+  var maxX = 0;
+  var maxRadius = 0;
+  placed.forEach(function (shape, index) {
+    var shapeName = shapeGeometryName(shape);
+    if (usedNames[shapeName]) {
+      shapeName = shapeName + '_' + shape.typeID;
+    }
+    usedNames[shapeName] = true;
+    var reach = shape.lattice === 'cylinder' ? shape.length / 2 : shape.radius;
+    minX = Math.min(minX, shape.center[0] - reach);
+    maxX = Math.max(maxX, shape.center[0] + reach);
+    maxRadius = Math.max(maxRadius, shape.radius);
+    shapes.push({
+      deltar: preset.deltar,
+      deltas: preset.deltas,
+      deltax: 0,
+      deltay: 0,
+      deltaz: 0,
+      depth: 0,
+      fillable: true,
+      formula: shape.formula,
+      height: 0,
+      lattice: shape.lattice === 'cylinder' ? 'Cylindrical Lattice' : 'Spherical Lattice',
+      length: shape.length,
+      name: shapeName,
+      radius: shape.radius,
+      type: 'Standard',
+      center: shape.center
+    });
+    actions.push(buildAction('Fill Action', index + 1, shapeName, shape.typeID));
+  });
+
+  return {
+    actions: actions,
+    arrangement: 'inline',
+    boundary_condition: {
+      reflect_x: true,
+      reflect_y: true,
+      reflect_z: true
+    },
+    c_0: 10,
+    gravity: [0, 0, 0],
+    p_0: 100,
+    rho_0: 1,
+    shapes: shapes,
+    size: null,
+    static: true,
+    template_version: 2,
+    transformations: [],
+    types: types,
+    x_lim: [minX, maxX],
+    y_lim: [-maxRadius, maxRadius],
+    z_lim: [-maxRadius, maxRadius]
+  };
+}
+
+function createDomain(density, shape, compartments, arrangement) {
+  if (arrangement === 'inline') {
+    return createInlineDomain(density, compartments);
+  }
   var domainShape = validateDomainShape(shape || 'sphere');
   if (domainShape === 'cylinder') {
     return createCylinderDomain();
@@ -874,16 +1275,25 @@ function createDomain(density, shape, compartments) {
   var preset = getDensityPreset(density);
   var compartmentList = (compartments || []).length > 0
     ? compartments.map(function (compartment) {
+      var radius = validateCompartmentRadius(
+        compartment.radius == null ? preset.radius : compartment.radius
+      );
       return {
         id: compartment.id,
         name: compartment.name,
         typeID: compartment.typeID,
-        radius: validateCompartmentRadius(
-          compartment.radius == null ? preset.radius : compartment.radius
-        )
+        radius: radius,
+        formula: compartment.formula && String(compartment.formula).trim()
+          ? String(compartment.formula).trim()
+          : sphereFormula(radius)
       };
     })
-    : [{ name: 'Domain', typeID: DOMAIN_TYPE_ID, radius: preset.radius }];
+    : [{
+      name: 'Domain',
+      typeID: DOMAIN_TYPE_ID,
+      radius: preset.radius,
+      formula: sphereFormula(preset.radius)
+    }];
 
   var types = [{
     c: 10,
@@ -922,7 +1332,7 @@ function createDomain(density, shape, compartments) {
     deltaz: 0,
     depth: 0,
     fillable: true,
-    formula: 'True',
+    formula: fillGeometryFormula(outer),
     height: 0,
     lattice: 'Spherical Lattice',
     length: 0,
@@ -955,7 +1365,7 @@ function createDomain(density, shape, compartments) {
       deltaz: 0,
       depth: 0,
       fillable: false,
-      formula: sphereFormula(nestedRadius),
+      formula: ensureCompartmentFormula(compartment).formula,
       height: 0,
       lattice: 'Spherical Lattice',
       length: 0,
@@ -1009,7 +1419,16 @@ function buildInitialConditions(state) {
     .filter(function (species) {
       return species.initialCount > 0;
     })
-    .map(expandInitialCondition);
+    .map(function (record) {
+      var condition = expandInitialCondition(record);
+      if (state.arrangement === 'inline') {
+        var compartment = state.compartments[record.compartmentId];
+        if (compartment) {
+          condition.types = [compartment.typeID];
+        }
+      }
+      return condition;
+    });
 }
 
 function expandSpecies(record) {
@@ -1099,7 +1518,12 @@ function toSmdl(state) {
     annotation: state.annotation,
     volume: state.volume,
     modelSettings: clone(state.modelSettings),
-    domain: createDomain(state.density, state.shape, listCompartments(state)),
+    domain: createDomain(
+      state.density,
+      state.shape,
+      listCompartments(state),
+      state.arrangement
+    ),
     species: species,
     initialConditions: buildInitialConditions(state),
     parameters: parameters,
@@ -1111,6 +1535,66 @@ function toSmdl(state) {
     boundaryConditions: [],
     template_version: state.template_version
   };
+}
+
+function positiveDomainTypeIDs(model) {
+  var ids = ((model.domain && model.domain.types) || []).filter(function (item) {
+    return item && Number(item.typeID) > 0;
+  }).map(function (item) {
+    return Number(item.typeID);
+  });
+  return ids.length > 0 ? ids : [DOMAIN_TYPE_ID];
+}
+
+function diffusionPreviewModel(state) {
+  var placed = listSpecies(state).filter(function (species) {
+    return species.initialCount > 0;
+  });
+  if (placed.length === 0) {
+    throw new Error(
+      'Add a species, assign it to a shape, and set an initial particle count before running Diffusion.'
+    );
+  }
+  var model = toSmdl(state);
+  var allTypes = positiveDomainTypeIDs(model);
+  var names = {};
+  placed.forEach(function (species) {
+    names[species.name] = true;
+  });
+  model.species = model.species.filter(function (species) {
+    return names[species.name];
+  }).map(function (species) {
+    return Object.assign({}, species, {
+      diffusionConst: 0.1,
+      types: allTypes.slice()
+    });
+  });
+  model.parameters = [];
+  model.reactions = [];
+  model.initialConditions = placed.map(function (species) {
+    var compartment = state.compartments[species.compartmentId] || firstCompartment(state);
+    var startType = compartment ? Number(compartment.typeID) : allTypes[0];
+    if (allTypes.indexOf(startType) < 0) {
+      startType = allTypes[0];
+    }
+    var exported = null;
+    model.species.forEach(function (item) {
+      if (item.name === species.name) {
+        exported = item;
+      }
+    });
+    return {
+      icType: 'Scatter',
+      annotation: '',
+      count: species.initialCount,
+      types: [startType],
+      x: 0,
+      y: 0,
+      z: 0,
+      specie: clone(exported)
+    };
+  });
+  return model;
 }
 
 function parseRadiusFromFormula(formula) {
@@ -1157,6 +1641,20 @@ function applyCompartmentRadiiFromDomain(state, domain, typeIdToCompartmentId) {
     if (Number.isFinite(radius) && radius > 0) {
       state.compartments[compartmentId].radius = radius;
     }
+    if (geometry.lattice === 'Cylindrical Lattice') {
+      state.compartments[compartmentId].lattice = 'cylinder';
+    }
+    if (Number(geometry.length) > 0) {
+      state.compartments[compartmentId].length = Number(geometry.length);
+    }
+    if (geometry.formula && String(geometry.formula).trim() &&
+        String(geometry.formula).trim() !== 'True') {
+      state.compartments[compartmentId].formula = isHalfSphereFormula(geometry.formula, radius)
+        ? halfSphereFormula(radius)
+        : String(geometry.formula).trim();
+    } else if (Number.isFinite(radius) && radius > 0) {
+      state.compartments[compartmentId].formula = sphereFormula(radius);
+    }
   });
 
   listCompartments(state);
@@ -1188,15 +1686,16 @@ function fromSmdl(model) {
     parameters: {},
     reactions: {},
     reactionOrder: [],
-    template_version: model.template_version || 1
+    template_version: model.template_version || 1,
+    arrangement: model.domain && model.domain.arrangement === 'inline' ? 'inline' : 'nested'
   };
 
   var shape = model.domain && model.domain.shapes && model.domain.shapes[0];
-  if (model.domain &&
+  if (state.arrangement !== 'inline' && model.domain &&
       (model.domain.particles || []).length > 0 &&
       !(model.domain.shapes || []).length) {
     state.shape = 'cylinder';
-  } else if (shape && shape.lattice === 'Cylindrical Lattice') {
+  } else if (state.arrangement !== 'inline' && shape && shape.lattice === 'Cylindrical Lattice') {
     state.shape = 'cylinder';
   } else {
     state.shape = 'sphere';
@@ -1369,6 +1868,73 @@ function setShape(state, shape) {
   return state;
 }
 
+function setArrangement(state, arrangement) {
+  state.arrangement = arrangement === 'inline' ? 'inline' : 'nested';
+  if (state.arrangement === 'inline') {
+    state.shape = 'sphere';
+  }
+  syncShapeModeling(state);
+  return state;
+}
+
+var DOMAIN_EXAMPLES = [
+  {
+    id: 'nested-cell',
+    label: 'Nested Cell',
+    arrangement: 'nested',
+    shapes: [
+      { name: 'Cytoplasm', radius: 1, lattice: 'sphere', example: 'solid' },
+      { name: 'Nucleus', radius: 0.4, lattice: 'sphere', example: 'solid' }
+    ]
+  },
+  {
+    id: 'ecoli-cell',
+    label: 'E. coli Cell',
+    arrangement: 'inline',
+    shapes: [
+      { name: 'RightCap', radius: 1, lattice: 'sphere', example: 'half' },
+      { name: 'Cylinder', radius: 1, lattice: 'cylinder', length: 2, example: 'solid' },
+      { name: 'LeftCap', radius: 1, lattice: 'sphere', example: 'half' }
+    ]
+  }
+];
+
+function applyDomainExample(state, exampleId) {
+  var example = null;
+  DOMAIN_EXAMPLES.forEach(function (item) {
+    if (item.id === exampleId) {
+      example = item;
+    }
+  });
+  if (!example) {
+    throw new Error('Unknown domain example: ' + exampleId);
+  }
+  state.shape = 'sphere';
+  state.arrangement = example.arrangement === 'inline' ? 'inline' : 'nested';
+  state.compartments = {};
+  state.compartmentOrder = [];
+  example.shapes.forEach(function (shape) {
+    var radius = shape.radius;
+    var id = allocateId(state);
+    state.compartments[id] = {
+      id: id,
+      name: shape.name,
+      typeID: nextCompartmentTypeID(state),
+      radius: radius,
+      formula: shape.example === 'half' ? halfSphereFormula(radius) : sphereFormula(radius),
+      lattice: shape.lattice === 'cylinder' ? 'cylinder' : 'sphere',
+      length: shape.length == null ? 2 : shape.length
+    };
+    state.compartmentOrder.push(id);
+  });
+  var fallbackId = state.compartmentOrder[0];
+  sortedRecords(state.species).forEach(function (species) {
+    species.compartmentId = fallbackId;
+  });
+  syncShapeModeling(state);
+  return state;
+}
+
 function listSpeciesNames(state) {
   return listSpecies(state).map(function (item) {
     return item.name;
@@ -1424,7 +1990,70 @@ function addReaction(state, options) {
     products: products
   });
   state.reactionOrder.push(reaction.id);
+  ensureCylinderAnnihilation(state);
   syncModelSettings(state);
+  return reaction;
+}
+
+function hasAnnihilationBetween(state, speciesIdA, speciesIdB) {
+  return sortedRecords(state.reactions).some(function (reaction) {
+    if (!reaction || (reaction.products || []).length > 0) {
+      return false;
+    }
+    var reactantIds = (reaction.reactants || []).map(function (entry) {
+      return Number(entry.speciesId);
+    }).sort(function (a, b) { return a - b; });
+    var expected = [Number(speciesIdA), Number(speciesIdB)].sort(function (a, b) {
+      return a - b;
+    });
+    return reactantIds.length === 2 &&
+      reactantIds[0] === expected[0] &&
+      reactantIds[1] === expected[1];
+  });
+}
+
+// Legacy 3D cylinder demo: once both ends create different species, add A + B → ∅
+// so the fronts meet and clear in the Middle instead of filling the whole domain.
+function ensureCylinderAnnihilation(state) {
+  if (state.shape !== 'cylinder') {
+    return null;
+  }
+  var creations = listCreationReactions(state);
+  if (creations.length < 2) {
+    return null;
+  }
+  var firstProduct = creations[0].products && creations[0].products[0];
+  var secondProduct = creations[1].products && creations[1].products[0];
+  if (!firstProduct || !secondProduct) {
+    return null;
+  }
+  if (Number(firstProduct.speciesId) === Number(secondProduct.speciesId)) {
+    return null;
+  }
+  if (hasAnnihilationBetween(state, firstProduct.speciesId, secondProduct.speciesId)) {
+    return null;
+  }
+
+  var name = suggestReactionName(state);
+  var rate = createParameterRecord(state, name + '_rate', 1);
+  var reaction = createReactionRecord(state, {
+    name: name,
+    rateParameterId: rate.id,
+    reactants: [
+      { speciesId: firstProduct.speciesId, ratio: 1 },
+      { speciesId: secondProduct.speciesId, ratio: 1 }
+    ],
+    products: []
+  });
+  reaction.massaction = true;
+  reaction.propensity = '';
+  reaction.odePropensity = '';
+  reaction.types = [
+    CYLINDER_TYPES.MIDDLE,
+    CYLINDER_TYPES.EDGE1,
+    CYLINDER_TYPES.EDGE2
+  ];
+  state.reactionOrder.push(reaction.id);
   return reaction;
 }
 
@@ -1546,6 +2175,8 @@ module.exports = {
   END_SIM_PRESETS: clone(END_SIM_PRESETS),
   INITIAL_COUNT_PRESETS: clone(INITIAL_COUNT_PRESETS),
   RADIUS_PRESETS: clone(RADIUS_PRESETS),
+  FORMULA_EXAMPLES: clone(FORMULA_EXAMPLES),
+  DOMAIN_EXAMPLES: clone(DOMAIN_EXAMPLES),
   REACTION_TEMPLATES: clone(REACTION_TEMPLATES),
   addCompartment: addCompartment,
   addReaction: addReaction,
@@ -1569,12 +2200,21 @@ module.exports = {
   setDensity: setDensity,
   setEndSim: setEndSim,
   setShape: setShape,
+  setArrangement: setArrangement,
+  applyDomainExample: applyDomainExample,
+  layoutInlineShapes: layoutInlineShapes,
   speciesAssignedToCompartment: speciesAssignedToCompartment,
   suggestCompartmentName: suggestCompartmentName,
   suggestCompartmentRadius: suggestCompartmentRadius,
+  sphereFormula: sphereFormula,
+  halfSphereFormula: halfSphereFormula,
+  hollowSphereFormula: hollowSphereFormula,
+  shapeFormulaForExample: shapeFormulaForExample,
+  matchShapeFormulaExample: matchShapeFormulaExample,
   suggestReactionName: suggestReactionName,
   suggestSpeciesName: suggestSpeciesName,
   toSmdl: toSmdl,
+  diffusionPreviewModel: diffusionPreviewModel,
   updateCompartment: updateCompartment,
   updateReaction: updateReaction,
   updateSpecies: updateSpecies

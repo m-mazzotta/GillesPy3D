@@ -428,11 +428,13 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
                         )
                     elif s_shape['lattice'] == "Spherical Lattice":
                         lattice = SphericalLattice(
-                            s_shape['radius'], s_shape['deltas'], deltar=s_shape['deltar']
+                            s_shape['radius'], s_shape['deltas'],
+                            center=s_shape.get('center'), deltar=s_shape['deltar']
                         )
                     elif s_shape['lattice'] == "Cylindrical Lattice":
                         lattice = CylindricalLattice(
-                            s_shape['radius'], s_shape['length'], s_shape['deltas'], deltar=s_shape['deltar']
+                            s_shape['radius'], s_shape['length'], s_shape['deltas'],
+                            center=s_shape.get('center'), deltar=s_shape['deltar']
                         )
                     lattices[lat_name] = lattice
             items = [' and ', ' or ', ' not ', '(', ')']
@@ -568,6 +570,18 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
         except ModelError as err:
             message = f"One or more domain transformations are invalid: {err}"
             raise DomainTransformationError(message, traceback.format_exc()) from err
+
+    @staticmethod
+    def __spatial_type_name(name):
+        '''SpatialPy type ids reject spaces and treat the type name as the id.'''
+        return str(name).replace(" ", "").replace("-", "")
+
+    @classmethod
+    def __type_id_map(cls, types):
+        return {
+            d_type['typeID']: cls.__spatial_type_name(d_type['name'])
+            for d_type in types
+        }
 
     @classmethod
     def __convert_types(cls, domain, type_ids):
@@ -860,7 +874,7 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
         if include_model_settings:
             self.__convert_model_settings(model=s_model)
         types = sorted(self.model['domain']['types'], key=lambda d_type: d_type['typeID'])
-        type_ids = {d_type['typeID']: d_type['name'] for d_type in types}
+        type_ids = self.__type_id_map(types)
         self.__convert_domain(model=s_model, type_ids=type_ids)
         if "boundaryConditions" in self.model.keys():
             self.__convert_boundary_conditions(model=s_model)
@@ -1026,7 +1040,7 @@ class GillesPy3DSpatialModel(GillesPy3DBase):
             return plot, limits
 
         types = sorted(s_domain['types'], key=lambda d_type: d_type['typeID'])
-        type_ids = {d_type['typeID']: d_type['name'] for d_type in types}
+        type_ids = self.__type_id_map(types)
         domain = self.__convert_domain(type_ids, s_domain=s_domain)
         xlim, ylim, zlim = domain.get_bounding_box()
         limits = [list(xlim), list(ylim), list(zlim)]

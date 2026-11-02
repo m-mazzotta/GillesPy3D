@@ -16,6 +16,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
+import os
+import pickle
+import shutil
+import tempfile
 import unittest
 from unittest import mock
 
@@ -65,6 +69,14 @@ class TestSpatialSimulationAllSpeciesPreview(unittest.TestCase):
 
         results.get_species.side_effect = get_species
 
+        domain = mock.Mock()
+        domain.coordinates.return_value = np.array([
+            [-4.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0]
+        ])
+        results.model = mock.Mock()
+        results.model.domain = domain
+
         with mock.patch("os.listdir", return_value=[".gitignore", "0", "1", "2"]):
             payload = sim.run(preview=True)
 
@@ -84,7 +96,29 @@ class TestSpatialSimulationAllSpeciesPreview(unittest.TestCase):
         self.assertEqual(timeseries["data"][0]["name"], "A")
         self.assertEqual(timeseries["data"][0]["y"], [3, 4, 4])
         self.assertEqual(timeseries["data"][2]["y"], [0, 3, 6])
-        self.assertEqual(timeseries["layout"]["yaxis"]["title"]["text"], "Count")
+        self.assertEqual(timeseries["layout"]["yaxis"]["title"]["text"], "Molecules")
+        self.assertIn("job_path", payload)
+        self.assertIsNone(payload["job_path"])
+
+        profile = payload["spatial_profile_figure"]
+        self.assertIn("data", profile)
+        self.assertEqual(len(profile["data"]), 3)
+        self.assertEqual(profile["data"][0]["name"], "A")
+        # First frame for A is [1, 2] at x=[-4, 4]; bins keep that left/right sum.
+        self.assertAlmostEqual(sum(profile["data"][0]["y"]), 3)
+        self.assertEqual(profile["data"][1]["name"], "B")
+        self.assertAlmostEqual(sum(profile["data"][1]["y"]), 1)
+        self.assertIn("Time = 0", profile["layout"]["title"]["text"])
+        self.assertEqual(profile["layout"]["yaxis"]["title"]["text"], "Molecules")
+
+        mid_profile = payload["spatial_profile_mid_figure"]
+        self.assertIn("data", mid_profile)
+        self.assertEqual(len(mid_profile["data"]), 3)
+        # Mid frame for A is [3, 1] at x=[-4, 4].
+        self.assertAlmostEqual(sum(mid_profile["data"][0]["y"]), 4)
+        self.assertAlmostEqual(sum(mid_profile["data"][1]["y"]), 2)
+        self.assertIn("Summarized", mid_profile["layout"]["title"]["text"])
+        self.assertIn("t =", mid_profile["layout"]["title"]["text"])
 
     def test_single_species_still_returns_one_figure(self):
         sim = SpatialSimulation.__new__(SpatialSimulation)
@@ -104,6 +138,10 @@ class TestSpatialSimulationAllSpeciesPreview(unittest.TestCase):
         timespan.items = np.array([0.0, 1.0])
         results.get_timespan.return_value = timespan
         results.get_species.side_effect = lambda name, **_kwargs: np.array([[1], [2]])
+        domain = mock.Mock()
+        domain.coordinates.return_value = np.array([[0.0, 0.0, 0.0]])
+        results.model = mock.Mock()
+        results.model.domain = domain
 
         with mock.patch("os.listdir", return_value=["0", "1"]):
             payload = sim.run(preview=True)
@@ -112,9 +150,53 @@ class TestSpatialSimulationAllSpeciesPreview(unittest.TestCase):
         self.assertIn("layout", payload)
         self.assertNotIn("figures", payload)
         self.assertIn("timeseries_figure", payload)
+        self.assertIn("spatial_profile_figure", payload)
+        self.assertIn("spatial_profile_mid_figure", payload)
         self.assertEqual(len(payload["timeseries_figure"]["data"]), 2)
+        self.assertEqual(len(payload["spatial_profile_figure"]["data"]), 2)
+        self.assertEqual(len(payload["spatial_profile_mid_figure"]["data"]), 2)
         results.plot_species.assert_called_once()
         self.assertEqual(results.plot_species.call_args.kwargs["species"], "A")
+        self.assertIn("job_path", payload)
+        self.assertIsNone(payload["job_path"])
+
+
+class TestPersistPreviewExportJob(unittest.TestCase):
+    '''Preview runs can materialize a sibling job for CSV/notebook export.'''
+
+    def test_persist_creates_job_and_results_pickle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            SpatialSimulation.user_dir = tmp
+            model_rel = os.path.join("models", "demo.smdl")
+            model_full = os.path.join(tmp, model_rel)
+            os.makedirs(os.path.dirname(model_full), exist_ok=True)
+            with open(model_full, "w", encoding="utf-8") as model_file:
+                model_file.write("{}")
+
+            fake_results = {"ok": True}
+
+            def create_job(path, new=False, data=None):
+                job_full = os.path.join(tmp, path)
+                os.makedirs(os.path.join(job_full, "results"), exist_ok=True)
+                shutil.copyfile(
+                    os.path.join(tmp, data["mdl_path"]),
+                    os.path.join(job_full, os.path.basename(data["mdl_path"]))
+                )
+                return mock.Mock()
+
+            with mock.patch(
+                "model_builder.handlers.util.spatial_simulation.GillesPy3DJob",
+                side_effect=create_job
+            ):
+                job_path = SpatialSimulation.persist_preview_export_job(
+                    model_rel, fake_results
+                )
+
+            self.assertEqual(job_path, os.path.join("models", "demo_SES_preview.wkfl"))
+            results_path = os.path.join(tmp, job_path, "results", "results.p")
+            self.assertTrue(os.path.exists(results_path))
+            with open(results_path, "rb") as results_file:
+                self.assertEqual(pickle.load(results_file), fake_results)
 
 
 if __name__ == "__main__":
